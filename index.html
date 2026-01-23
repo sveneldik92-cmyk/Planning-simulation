@@ -1,2 +1,581 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Production-Planning Tool</title>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/simpleheat@0.4.0/simpleheat.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.11.1/dist/pptxgen.min.js" defer></script>
+  <style>
+    :root {
+      --light-blue: #3a7bd5;
+      --dark-blue: #174c8f;
+      --bg: #f7f9fc;
+      --text: #666;
+      --border: #ccc;
+    }
+    * {
+      box-sizing: border-box;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .input-pane {
+      background: #fff;
+      padding: 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px 24px;
+    }
+    .field {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .field label {
+      flex: 1;
+      font-weight: 600;
+      color: var(--dark-blue);
+    }
+    .field input[type="number"],
+    .field input[type="text"] {
+      width: 120px;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    .field input[readonly] {
+      background: #eef3fb;
+    }
+    .slider-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+    }
+    .slider-wrap input {
+      flex: 1;
+    }
+    .boost-grid {
+      display: grid;
+      grid-template-columns: repeat(13, minmax(0, 1fr));
+      gap: 6px;
+      padding: 8px 0 0;
+    }
+    .boost-item {
+      text-align: center;
+      font-size: 12px;
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+      align-items: center;
+    }
+    button {
+      background: var(--light-blue);
+      color: #fff;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button.secondary {
+      background: var(--dark-blue);
+    }
+    .kpi {
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .kpi.ok {
+      background: #2eaf5d;
+    }
+    .kpi.bad {
+      background: #d94848;
+    }
+    .figures {
+      background: #fff;
+      padding: 12px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+    th, td {
+      text-align: left;
+      padding: 6px 8px;
+      border-bottom: 1px solid #eee;
+    }
+    th {
+      color: var(--dark-blue);
+    }
+    .charts {
+      display: grid;
+      grid-template-columns: 70% 30%;
+      gap: 16px;
+    }
+    #gantt {
+      width: 100%;
+      height: 520px;
+      background: #fff;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    #heatmapWrap {
+      background: #fff;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #heatmap {
+      width: 400px;
+      height: 520px;
+      border: 1px solid #eee;
+    }
+    .legend {
+      margin-top: 8px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="input-pane">
+      <div class="field">
+        <label for="normalStaff">Normal staffing / product</label>
+        <input id="normalStaff" type="number" min="1" value="6" />
+      </div>
+      <div class="field">
+        <label for="normalCT">Normal cycle-time (days)</label>
+        <input id="normalCT" type="number" min="1" value="20" />
+      </div>
+      <div class="field">
+        <label for="slowStaff">Slow staffing / product</label>
+        <input id="slowStaff" type="number" min="1" value="4" />
+      </div>
+      <div class="field">
+        <label for="slowCT">Slow cycle-time (days)</label>
+        <input id="slowCT" type="text" readonly />
+      </div>
+      <div class="field">
+        <label for="annualPD">Annual person-days budget</label>
+        <input id="annualPD" type="number" min="1" value="2600" />
+      </div>
+      <div class="field">
+        <label for="quarterDemand">Quarterly demand (# done)</label>
+        <input id="quarterDemand" type="number" min="1" value="40" />
+      </div>
+      <div class="field" style="grid-column: span 2;">
+        <label for="bunching">Bunching slider (0–100 %)</label>
+        <div class="slider-wrap">
+          <input id="bunching" type="range" min="0" max="100" value="30" />
+          <span id="bunchingValue">30</span>
+        </div>
+      </div>
+      <div class="field" style="grid-column: span 2; align-items: flex-start;">
+        <label>Productivity boost weeks (W1…W13)</label>
+        <div class="boost-grid" id="boostGrid"></div>
+      </div>
+      <div class="actions" style="grid-column: span 2;">
+        <button id="recalc">RECALCULATE</button>
+        <button id="export" class="secondary">EXPORT → PPT</button>
+      </div>
+    </div>
+
+    <div id="kpi" class="kpi ok">CAPACITY OK</div>
+
+    <div class="figures">
+      <strong>Derived figures</strong>
+      <table>
+        <tbody>
+          <tr>
+            <th>Slow cycle-time (days)</th>
+            <td id="figSlowCT">-</td>
+          </tr>
+          <tr>
+            <th>Daily head-count capacity (people)</th>
+            <td id="figDailyCap">-</td>
+          </tr>
+          <tr>
+            <th>Products completed this quarter</th>
+            <td id="figCompleted">-</td>
+          </tr>
+          <tr>
+            <th>Max products in parallel (day peak)</th>
+            <td id="figPeak">-</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="charts">
+      <div id="gantt"></div>
+      <div id="heatmapWrap">
+        <canvas id="heatmap" width="400" height="520"></canvas>
+        <div class="legend">Darker = more products in work</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const byId = (id) => document.getElementById(id);
+      const inputIds = ["normalStaff", "normalCT", "slowStaff", "annualPD", "quarterDemand"];
+      const boostGrid = byId("boostGrid");
+      const bunching = byId("bunching");
+      const bunchingValue = byId("bunchingValue");
+      const slowCT = byId("slowCT");
+      const kpi = byId("kpi");
+      const figSlowCT = byId("figSlowCT");
+      const figDailyCap = byId("figDailyCap");
+      const figCompleted = byId("figCompleted");
+      const figPeak = byId("figPeak");
+      const heatCanvas = byId("heatmap");
+      let previousValues = {};
+
+      const clampInt = (value) => {
+        const intVal = parseInt(value, 10);
+        return Number.isFinite(intVal) && intVal > 0 ? intVal : null;
+      };
+
+      const buildBoostGrid = () => {
+        for (let i = 1; i <= 13; i += 1) {
+          const wrapper = document.createElement("label");
+          wrapper.className = "boost-item";
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.value = i;
+          checkbox.dataset.week = i;
+          wrapper.appendChild(checkbox);
+          const caption = document.createElement("div");
+          caption.textContent = `W${i}`;
+          wrapper.appendChild(caption);
+          boostGrid.appendChild(wrapper);
+        }
+      };
+
+      const getBoostWeeks = () => {
+        const checks = Array.from(boostGrid.querySelectorAll("input[type='checkbox']"));
+        return checks.filter((el) => el.checked).map((el) => parseInt(el.dataset.week, 10));
+      };
+
+      const enforceBoostLimit = (changed) => {
+        const checked = getBoostWeeks();
+        if (checked.length > 8) {
+          changed.checked = false;
+        }
+      };
+
+      const updateSlowCycleTime = () => {
+        const normalStaff = clampInt(byId("normalStaff").value);
+        const normalCT = clampInt(byId("normalCT").value);
+        const slowStaffVal = clampInt(byId("slowStaff").value);
+        if (!normalStaff || !normalCT || !slowStaffVal) {
+          return;
+        }
+        const calc = Math.ceil(normalCT * (normalStaff / slowStaffVal));
+        slowCT.value = calc;
+        figSlowCT.textContent = calc;
+      };
+
+      const validateInputs = (changedId) => {
+        const value = clampInt(byId(changedId).value);
+        if (!value) {
+          byId(changedId).value = previousValues[changedId];
+          return false;
+        }
+        if (changedId === "slowStaff" || changedId === "normalStaff") {
+          const normalStaff = clampInt(byId("normalStaff").value);
+          const slowStaffVal = clampInt(byId("slowStaff").value);
+          if (normalStaff && slowStaffVal && slowStaffVal >= normalStaff) {
+            alert("Slow staffing must be less than normal staffing.");
+            byId("slowStaff").value = previousValues["slowStaff"];
+            return false;
+          }
+        }
+        previousValues[changedId] = value;
+        return true;
+      };
+
+      const computeSchedule = (inputs) => {
+        const { demand, normalCT, normalStaff, bunchingPct, boostWeeks, dailyCapacity } = inputs;
+        const startOffsets = [];
+        const uniformInterval = Math.floor(91 / demand);
+        const lateStart = Math.max(0, 91 - normalCT);
+        for (let i = 0; i < demand; i += 1) {
+          const uniform = i * uniformInterval;
+          const mixed = Math.floor((1 - bunchingPct) * uniform + bunchingPct * lateStart);
+          startOffsets.push(Math.max(0, mixed));
+        }
+
+        const activeByDay = [];
+        const productRuns = [];
+        let maxEnd = 0;
+
+        const isBoostedDay = (dayIndex) => {
+          const week = Math.floor(dayIndex / 7) + 1;
+          return boostWeeks.includes(week);
+        };
+
+        for (let i = 0; i < demand; i += 1) {
+          let work = 0;
+          let day = startOffsets[i];
+          const days = [];
+          while (work < normalCT && day < 365) {
+            const boosted = isBoostedDay(day);
+            work += boosted ? 1.125 : 1;
+            days.push(day);
+            day += 1;
+          }
+          const endDay = days[days.length - 1];
+          maxEnd = Math.max(maxEnd, endDay);
+          productRuns.push({
+            name: `P${i + 1}`,
+            start: startOffsets[i],
+            end: endDay,
+          });
+          days.forEach((d) => {
+            activeByDay[d] = (activeByDay[d] || 0) + 1;
+          });
+        }
+
+        const capacityByDay = [];
+        for (let d = 0; d <= maxEnd; d += 1) {
+          const boosted = isBoostedDay(d);
+          capacityByDay[d] = boosted ? dailyCapacity * 1.125 : dailyCapacity;
+        }
+
+        return { productRuns, activeByDay, capacityByDay, maxEnd };
+      };
+
+      const renderGantt = async (runs, boostWeeks) => {
+        const baseDate = new Date(2024, 0, 1);
+        const data = runs.map((run) => {
+          const startDate = new Date(baseDate.getTime() + run.start * 86400000);
+          const duration = (run.end - run.start + 1) * 86400000;
+          return {
+            type: "bar",
+            orientation: "h",
+            y: [run.name],
+            x: [duration],
+            base: [startDate],
+            marker: { color: "#3a7bd5" },
+            hovertemplate: `${run.name}<br>Start: %{base|%b %d}<br>End: %{x|%b %d}<extra></extra>`,
+          };
+        });
+
+        const shapes = boostWeeks.map((week) => {
+          const weekStart = new Date(baseDate.getTime() + (week - 1) * 7 * 86400000);
+          const weekEnd = new Date(baseDate.getTime() + week * 7 * 86400000);
+          return {
+            type: "rect",
+            xref: "x",
+            yref: "paper",
+            x0: weekStart,
+            x1: weekEnd,
+            y0: 0,
+            y1: 1,
+            fillcolor: "rgba(255,255,0,0.1)",
+            line: { width: 0 },
+          };
+        });
+
+        const layout = {
+          barmode: "stack",
+          margin: { l: 60, r: 20, t: 20, b: 40 },
+          xaxis: {
+            type: "date",
+            range: [baseDate, new Date(baseDate.getTime() + 91 * 86400000)],
+            tickformat: "%b %d",
+          },
+          yaxis: { automargin: true },
+          shapes,
+          paper_bgcolor: "#fff",
+          plot_bgcolor: "#fff",
+        };
+
+        await Plotly.newPlot("gantt", data, layout, { displayModeBar: false });
+      };
+
+      const renderHeatmap = (activeByDay, boostWeeks) => {
+        const ctx = heatCanvas.getContext("2d");
+        ctx.clearRect(0, 0, heatCanvas.width, heatCanvas.height);
+        const heat = simpleheat(heatCanvas);
+        const colWidth = heatCanvas.width / 13;
+        const rowHeight = 40;
+        const weekValues = [];
+        for (let w = 0; w < 13; w += 1) {
+          const start = w * 7;
+          const end = start + 7;
+          const values = activeByDay.slice(start, end).filter((v) => v !== undefined);
+          const maxVal = values.length ? Math.max(...values) : 0;
+          weekValues.push(maxVal);
+        }
+        const maxParallel = Math.max(...weekValues, 1);
+        const points = [];
+        for (let col = 0; col < 13; col += 1) {
+          for (let row = 0; row < 13; row += 1) {
+            points.push([
+              col * colWidth + colWidth / 2,
+              row * rowHeight + rowHeight / 2,
+              weekValues[col],
+            ]);
+          }
+        }
+        heat.data(points);
+        heat.max(maxParallel);
+        heat.radius(20, 10);
+        heat.draw(0.05);
+
+        ctx.save();
+        ctx.fillStyle = "rgba(255,255,0,0.2)";
+        boostWeeks.forEach((week) => {
+          const x = (week - 1) * colWidth;
+          ctx.fillRect(x, 0, colWidth, heatCanvas.height);
+        });
+        ctx.restore();
+      };
+
+      const updateFigures = (inputs, schedule) => {
+        figDailyCap.textContent = inputs.dailyCapacity.toFixed(2);
+        const completed = schedule.productRuns.filter((run) => run.end <= 90).length;
+        figCompleted.textContent = completed;
+        const peak = Math.max(...schedule.activeByDay.slice(0, 91).filter(Boolean), 0);
+        figPeak.textContent = peak;
+      };
+
+      const updateKpi = (schedule, normalStaff) => {
+        const maxDay = schedule.maxEnd || 0;
+        let ok = true;
+        for (let d = 0; d <= maxDay; d += 1) {
+          const active = schedule.activeByDay[d] || 0;
+          const required = active * normalStaff;
+          if (required > schedule.capacityByDay[d]) {
+            ok = false;
+            break;
+          }
+        }
+        kpi.textContent = ok ? "CAPACITY OK" : "OVERLOADED";
+        kpi.className = `kpi ${ok ? "ok" : "bad"}`;
+      };
+
+      const recalculate = async () => {
+        const inputs = {};
+        for (const id of inputIds) {
+          if (!validateInputs(id)) {
+            return;
+          }
+          inputs[id] = clampInt(byId(id).value);
+        }
+        const boostWeeks = getBoostWeeks();
+        inputs.demand = inputs.quarterDemand;
+        inputs.normalCT = inputs.normalCT;
+        inputs.normalStaff = inputs.normalStaff;
+        inputs.bunchingPct = parseInt(bunching.value, 10) / 100;
+        inputs.dailyCapacity = inputs.annualPD / 260;
+        inputs.boostWeeks = boostWeeks;
+        updateSlowCycleTime();
+
+        const schedule = computeSchedule({
+          demand: inputs.demand,
+          normalCT: inputs.normalCT,
+          normalStaff: inputs.normalStaff,
+          bunchingPct: inputs.bunchingPct,
+          boostWeeks,
+          dailyCapacity: inputs.dailyCapacity,
+        });
+
+        updateFigures(inputs, schedule);
+        updateKpi(schedule, inputs.normalStaff);
+        await renderGantt(schedule.productRuns, boostWeeks);
+        renderHeatmap(schedule.activeByDay, boostWeeks);
+      };
+
+      const exportPpt = async () => {
+        const imageData = await Plotly.toImage("gantt", { format: "png", width: 1200, height: 520 });
+        const pptx = new PptxGenJS();
+        pptx.layout = "LAYOUT_WIDE";
+        const slide1 = pptx.addSlide();
+        slide1.addImage({ data: imageData, x: 0, y: 0, w: 13.33, h: 7.5 });
+
+        const slide2 = pptx.addSlide();
+        const params = [
+          `Normal staffing / product: ${byId("normalStaff").value}`,
+          `Normal cycle-time (days): ${byId("normalCT").value}`,
+          `Slow staffing / product: ${byId("slowStaff").value}`,
+          `Slow cycle-time (days): ${slowCT.value}`,
+          `Annual person-days budget: ${byId("annualPD").value}`,
+          `Quarterly demand: ${byId("quarterDemand").value}`,
+          `Bunching (%): ${bunching.value}`,
+          `Boost weeks: ${getBoostWeeks().join(", ") || "None"}`,
+          `KPI: ${kpi.textContent}`,
+          `Daily head-count capacity: ${figDailyCap.textContent}`,
+          `Products completed this quarter: ${figCompleted.textContent}`,
+          `Max products in parallel: ${figPeak.textContent}`,
+        ];
+        slide2.addText(params.join("\n"), {
+          x: 0.5,
+          y: 0.5,
+          w: 12.3,
+          h: 6.5,
+          fontSize: 18,
+          color: "174c8f",
+        });
+        pptx.writeFile({ fileName: "PlanningReport.pptx" });
+      };
+
+      document.addEventListener("DOMContentLoaded", () => {
+        buildBoostGrid();
+        inputIds.forEach((id) => {
+          const el = byId(id);
+          previousValues[id] = clampInt(el.value) || 1;
+          el.addEventListener("change", () => {
+            if (validateInputs(id)) {
+              updateSlowCycleTime();
+            }
+          });
+        });
+        bunching.addEventListener("input", () => {
+          bunchingValue.textContent = bunching.value;
+        });
+        boostGrid.addEventListener("change", (event) => {
+          if (event.target.matches("input[type='checkbox']")) {
+            enforceBoostLimit(event.target);
+          }
+        });
+        byId("recalc").addEventListener("click", () => {
+          recalculate();
+        });
+        byId("export").addEventListener("click", () => {
+          exportPpt();
+        });
+        updateSlowCycleTime();
+        recalculate();
+      });
+    })();
+  </script>
+</body>
 </html>
