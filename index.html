@@ -60,15 +60,6 @@
     .field input[readonly] {
       background: #eef3fb;
     }
-    .slider-wrap {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      width: 100%;
-    }
-    .slider-wrap input {
-      flex: 1;
-    }
     .boost-grid {
       display: grid;
       grid-template-columns: repeat(var(--week-columns, 13), minmax(0, 1fr));
@@ -107,13 +98,21 @@
       border: 1px solid var(--border);
       padding: 10px 16px;
     }
-    .parallel-metrics-grid {
-      display: grid;
-      grid-template-columns: repeat(var(--week-columns, 13), minmax(60px, 1fr));
-      gap: 8px;
-      margin-top: 8px;
+    .parallel-metrics table {
+      margin-top: 10px;
       font-size: 12px;
       color: #3b4a5a;
+      table-layout: fixed;
+    }
+    .parallel-metrics th,
+    .parallel-metrics td {
+      text-align: center;
+    }
+    .parallel-metrics th:first-child,
+    .parallel-metrics td:first-child {
+      text-align: left;
+      font-weight: 600;
+      width: 220px;
     }
     .actions {
       display: flex;
@@ -184,29 +183,22 @@
       margin: 0 0 6px;
       color: var(--dark-blue);
     }
-    .gantt-controls {
-      background: #fff;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      padding: 12px 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-    .gantt-controls .boost-grid {
-      padding: 0;
+    .gantt-panel h3 {
+      margin: 0;
+      color: var(--dark-blue);
     }
     .scale-controls {
       display: flex;
       align-items: center;
       gap: 8px;
+      justify-content: flex-end;
+      margin-top: 8px;
     }
     .scale-controls button {
       padding: 8px 12px;
     }
-    #gantt {
+    #ganttLeveled,
+    #ganttCapped {
       width: 100%;
       height: 520px;
       background: #fff;
@@ -240,7 +232,7 @@
       </div>
       <div class="field cycle-slow">
         <label for="slowCT">Slow cycle-time (days)</label>
-        <input id="slowCT" type="number" min="1" value="18" readonly />
+        <input id="slowCT" type="number" min="1" step="0.1" value="18.0" readonly />
       </div>
       <div class="field">
         <label for="fteFactor">Max staffing → FTE factor</label>
@@ -250,12 +242,9 @@
         <label for="quarterDemand">Quarterly demand (# done)</label>
         <input id="quarterDemand" type="number" min="1" value="20" />
       </div>
-      <div class="field" style="grid-column: span 2;">
-        <label for="bunching">Bunching slider (0–100 %)</label>
-        <div class="slider-wrap">
-          <input id="bunching" type="range" min="0" max="100" value="30" />
-          <span id="bunchingValue">30</span>
-        </div>
+      <div class="field">
+        <label for="maxParallelCap">Max systems in parallel (cap scenario)</label>
+        <input id="maxParallelCap" type="number" min="1" value="4" />
       </div>
       <div class="actions" style="grid-column: span 2;">
         <button id="export" class="secondary">EXPORT → PPT</button>
@@ -294,19 +283,23 @@
 
     <div class="charts">
       <div class="gantt-panel">
-        <div class="gantt-controls">
-          <div class="scale-controls">
-            <span><strong>Scale</strong></span>
-            <button id="scaleIn">Scale in</button>
-            <button id="scaleOut" class="secondary">Scale out</button>
-          </div>
+        <h3>Scenario 1: Perfectly leveled plan</h3>
+        <div class="parallel-metrics" id="parallelMetricsLeveled"></div>
+        <div class="scale-controls">
+          <span><strong>Scale</strong></span>
+          <button id="scaleIn">Scale in</button>
+          <button id="scaleOut" class="secondary">Scale out</button>
         </div>
-        <div class="parallel-metrics" id="parallelMetrics"></div>
-        <div id="gantt"></div>
+        <div id="ganttLeveled"></div>
         <div class="weekly-options">
           <h4>Weekly options</h4>
           <div class="boost-grid" id="boostGrid"></div>
         </div>
+      </div>
+      <div class="gantt-panel">
+        <h3>Scenario 2: Max parallel cap (backloaded)</h3>
+        <div class="parallel-metrics" id="parallelMetricsCapped"></div>
+        <div id="ganttCapped"></div>
       </div>
     </div>
   </div>
@@ -314,10 +307,8 @@
   <script>
     (() => {
       const byId = (id) => document.getElementById(id);
-      const inputIds = ["normalStaff", "normalCT", "slowStaff", "fteFactor", "quarterDemand"];
+      const inputIds = ["normalStaff", "normalCT", "slowStaff", "fteFactor", "quarterDemand", "maxParallelCap"];
       const boostGrid = byId("boostGrid");
-      const bunching = byId("bunching");
-      const bunchingValue = byId("bunchingValue");
       const slowCT = byId("slowCT");
       const kpi = byId("kpi");
       const figSlowCT = byId("figSlowCT");
@@ -325,9 +316,13 @@
       const figMaxStaffFte = byId("figMaxStaffFte");
       const figCompleted = byId("figCompleted");
       const figPeak = byId("figPeak");
-      const parallelMetrics = byId("parallelMetrics");
+      const parallelMetricsLeveled = byId("parallelMetricsLeveled");
+      const parallelMetricsCapped = byId("parallelMetricsCapped");
       let previousValues = {};
       let currentRangeDays = 91;
+      const planningRangeDays = 91;
+      const minRangeDays = planningRangeDays;
+      const maxRangeDays = planningRangeDays;
       let productModes = [];
 
       const clampNumber = (value, allowFloat = false) => {
@@ -400,66 +395,106 @@
         if (!normalCTVal || !normalStaffVal || !slowStaffVal) {
           return;
         }
-        const calculated = Math.max(1, Math.round((normalCTVal * normalStaffVal) / slowStaffVal));
-        slowCT.value = calculated;
+        const calculated = Math.max(1, (normalCTVal * normalStaffVal) / slowStaffVal);
+        slowCT.value = calculated.toFixed(1);
       };
 
-      const computeSchedule = (inputs) => {
-        const { demand, normalCT, slowCT, normalStaff, slowStaff, bunchingPct, boostWeeks, modes } = inputs;
-        const startOffsets = [];
-        const uniformInterval = Math.floor(91 / demand);
-        const lateStart = Math.max(0, 91 - normalCT);
-        for (let i = 0; i < demand; i += 1) {
-          const uniform = i * uniformInterval;
-          const mixed = Math.floor((1 - bunchingPct) * uniform + bunchingPct * lateStart);
-          startOffsets.push(Math.max(0, mixed));
+      const getWorkDays = (startDay, cycleTime, boostWeeks, rangeDays) => {
+        const days = [];
+        let work = 0;
+        let day = startDay;
+        let safety = 0;
+        while (work < cycleTime && safety < rangeDays * 5) {
+          const week = Math.floor((day % rangeDays) / 7) + 1;
+          const boosted = boostWeeks.includes(week);
+          work += boosted ? 1.125 : 1;
+          days.push(day % rangeDays);
+          day += 1;
+          safety += 1;
         }
-        if (startOffsets.length > 0) {
-          startOffsets[0] = 0;
-        }
+        return { days, absoluteEnd: day - 1 };
+      };
 
-        const activeProductsByDay = [];
-        const activeStaffByDay = [];
+      const buildLeveledStartOffsets = (demand, rangeDays) =>
+        Array.from({ length: demand }, (_, i) => Math.floor((i * rangeDays) / demand));
+
+      const buildCappedStartOffsets = (inputs, rangeDays) => {
+        const { demand, normalCT, slowCT, boostWeeks, modes, maxParallel } = inputs;
+        const maxCap = Math.max(1, Math.floor(maxParallel || 1));
+        const capacity = Array.from({ length: rangeDays }, () => 0);
+        const startOffsets = Array.from({ length: demand }, () => 0);
+        for (let i = demand - 1; i >= 0; i -= 1) {
+          const isSlow = modes[i] || false;
+          const cycleTime = isSlow ? slowCT : normalCT;
+          let placed = false;
+          for (let candidate = rangeDays - 1; candidate >= 0; candidate -= 1) {
+            const { days } = getWorkDays(candidate, cycleTime, boostWeeks, rangeDays);
+            const fits = days.every((d) => capacity[d] < maxCap);
+            if (fits) {
+              startOffsets[i] = candidate;
+              days.forEach((d) => {
+                capacity[d] += 1;
+              });
+              placed = true;
+              break;
+            }
+          }
+          if (!placed) {
+            const { days } = getWorkDays(0, cycleTime, boostWeeks, rangeDays);
+            startOffsets[i] = 0;
+            days.forEach((d) => {
+              capacity[d] += 1;
+            });
+          }
+        }
+        return startOffsets;
+      };
+
+      const computeSchedule = (inputs, startOffsets, rangeDays) => {
+        const { demand, normalCT, slowCT, normalStaff, slowStaff, boostWeeks, modes } = inputs;
+        const activeProductsByDay = Array.from({ length: rangeDays }, () => 0);
+        const activeStaffByDay = Array.from({ length: rangeDays }, () => 0);
         const productRuns = [];
         let maxEnd = 0;
-
-        const isBoostedDay = (dayIndex) => {
-          const week = Math.floor(dayIndex / 7) + 1;
-          return boostWeeks.includes(week);
-        };
 
         for (let i = 0; i < demand; i += 1) {
           const isSlow = modes[i] || false;
           const cycleTime = isSlow ? slowCT : normalCT;
           const staff = isSlow ? slowStaff : normalStaff;
-          let work = 0;
-          let day = startOffsets[i];
-          const days = [];
-          while (work < cycleTime && day < 365) {
-            const boosted = isBoostedDay(day);
-            work += boosted ? 1.125 : 1;
-            days.push(day);
-            day += 1;
+          const { days, absoluteEnd } = getWorkDays(startOffsets[i], cycleTime, boostWeeks, rangeDays);
+          maxEnd = Math.max(maxEnd, absoluteEnd);
+          const segments = [];
+          let segmentStart = days[0];
+          let prevDay = days[0];
+          for (let idx = 1; idx < days.length; idx += 1) {
+            const current = days[idx];
+            const expected = (prevDay + 1) % rangeDays;
+            if (current !== expected) {
+              segments.push({ start: segmentStart, end: prevDay });
+              segmentStart = current;
+            }
+            prevDay = current;
           }
-          const endDay = days[days.length - 1];
-          maxEnd = Math.max(maxEnd, endDay);
+          segments.push({ start: segmentStart, end: prevDay });
           productRuns.push({
             name: `P${i + 1}`,
             index: i,
             start: startOffsets[i],
-            end: endDay,
+            end: absoluteEnd,
+            segments,
             isSlow,
           });
           days.forEach((d) => {
-            activeProductsByDay[d] = (activeProductsByDay[d] || 0) + 1;
-            activeStaffByDay[d] = (activeStaffByDay[d] || 0) + staff;
+            activeProductsByDay[d] += 1;
+            activeStaffByDay[d] += staff;
           });
         }
 
         const weeklyMaxStaff = [];
-        for (let w = 0; w <= Math.floor(maxEnd / 7); w += 1) {
+        const weeks = Math.ceil(rangeDays / 7);
+        for (let w = 0; w < weeks; w += 1) {
           const startDay = w * 7;
-          const endDay = Math.min(maxEnd, startDay + 6);
+          const endDay = Math.min(rangeDays - 1, startDay + 6);
           let weekPeak = 0;
           for (let d = startDay; d <= endDay; d += 1) {
             weekPeak = Math.max(weekPeak, activeStaffByDay[d] || 0);
@@ -472,28 +507,32 @@
 
       const getWeekNumber = (dayIndex) => Math.floor(dayIndex / 7) + 1;
 
-      const renderGantt = async (runs, boostWeeks, rangeDays = 91) => {
+      const renderGantt = async (chartId, runs, boostWeeks, rangeDays = 91) => {
         const baseDate = new Date(2024, 0, 1);
         const weekCount = Math.ceil(rangeDays / 7);
-        const data = runs.map((run) => {
-          const startDate = new Date(baseDate.getTime() + run.start * 86400000);
-          const duration = (run.end - run.start + 1) * 86400000;
-          const startWeek = getWeekNumber(run.start);
-          const endWeek = getWeekNumber(run.end);
-          return {
-            type: "bar",
-            orientation: "h",
-            y: ["Systems"],
-            x: [duration],
-            base: [startDate],
-            marker: {
-              color: run.isSlow ? "#d97a00" : "#3a7bd5",
-              line: { color: "#fff", width: 2 },
-            },
-            hovertemplate: `${run.name}<br>Start: W${startWeek}<br>End: W${endWeek}<extra></extra>`,
-            name: run.name,
-            customdata: [run.index],
-          };
+        const data = [];
+        runs.forEach((run) => {
+          run.segments.forEach((segment) => {
+            const startDate = new Date(baseDate.getTime() + segment.start * 86400000);
+            const duration = (segment.end - segment.start + 1) * 86400000;
+            const startWeek = getWeekNumber(segment.start);
+            const endWeek = getWeekNumber(segment.end);
+            data.push({
+              type: "bar",
+              orientation: "h",
+              y: ["Systems"],
+              x: [duration],
+              base: [startDate],
+              marker: {
+                color: run.isSlow ? "#d97a00" : "#3a7bd5",
+                line: { color: "#fff", width: 2 },
+              },
+              hovertemplate: `${run.name}<br>Start: W${startWeek}<br>End: W${endWeek}<extra></extra>`,
+              name: run.name,
+              customdata: [run.index],
+              showlegend: false,
+            });
+          });
         });
 
         const shapes = boostWeeks.map((week) => {
@@ -528,8 +567,8 @@
           showlegend: false,
         };
 
-        await Plotly.newPlot("gantt", data, layout, { displayModeBar: false });
-        const ganttEl = byId("gantt");
+        await Plotly.newPlot(chartId, data, layout, { displayModeBar: false });
+        const ganttEl = byId(chartId);
         if (ganttEl.removeAllListeners) {
           ganttEl.removeAllListeners("plotly_click");
         }
@@ -542,23 +581,23 @@
       };
 
       const updateFigures = (inputs, schedule) => {
-        const completed = schedule.productRuns.filter((run) => run.end <= 90).length;
+        const completed = schedule.productRuns.filter((run) => run.end <= planningRangeDays - 1).length;
         figCompleted.textContent = completed;
-        const peak = Math.max(...schedule.activeProductsByDay.slice(0, 91).filter(Boolean), 0);
+        const peak = Math.max(...schedule.activeProductsByDay.slice(0, planningRangeDays).filter(Boolean), 0);
         figPeak.textContent = peak;
-        figSlowCT.textContent = inputs.slowCT;
+        figSlowCT.textContent = inputs.slowCT.toFixed(1);
         figMaxStaff.textContent = schedule.maxWeeklyStaff;
         figMaxStaffFte.textContent = (schedule.maxWeeklyStaff * inputs.fteFactor).toFixed(1);
       };
 
       const updateKpi = (schedule, demand) => {
-        const completed = schedule.productRuns.filter((run) => run.end <= 90).length;
+        const completed = schedule.productRuns.filter((run) => run.end <= planningRangeDays - 1).length;
         const ok = completed >= demand;
         kpi.textContent = ok ? "DEMAND MET" : "DEMAND SHORTFALL";
         kpi.className = `kpi ${ok ? "ok" : "bad"}`;
       };
 
-      const updateParallelMetrics = (schedule, rangeDays = 91) => {
+      const updateParallelMetrics = (targetEl, schedule, rangeDays = 91) => {
         const weeks = Math.ceil(rangeDays / 7);
         const metrics = [];
         const staffing = [];
@@ -580,16 +619,29 @@
           metrics.push({ week: w + 1, maxParallel });
           staffing.push({ week: w + 1, maxStaff });
         }
-        parallelMetrics.style.setProperty("--week-columns", weeks);
-        const summary = metrics.map((item) => `<div><strong>W${item.week}</strong><br>${item.maxParallel}</div>`).join("");
-        const staffingSummary = staffing
-          .map((item) => `<div><strong>W${item.week}</strong><br>${item.maxStaff}</div>`)
-          .join("");
-        parallelMetrics.innerHTML = `
-          <div><strong>Max systems in parallel by week</strong></div>
-          <div class="parallel-metrics-grid">${summary}</div>
-          <div style="margin-top: 10px;"><strong>Max staffing needed by week</strong></div>
-          <div class="parallel-metrics-grid">${staffingSummary}</div>
+        const weekHeaders = metrics.map((item) => `<th>W${item.week}</th>`).join("");
+        const parallelRow = metrics.map((item) => `<td>${item.maxParallel}</td>`).join("");
+        const staffingRow = staffing.map((item) => `<td>${item.maxStaff}</td>`).join("");
+        targetEl.innerHTML = `
+          <div><strong>Weekly peaks (13-week window)</strong></div>
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+                ${weekHeaders}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Max systems in parallel by week</td>
+                ${parallelRow}
+              </tr>
+              <tr>
+                <td>Max staffing needed by week</td>
+                ${staffingRow}
+              </tr>
+            </tbody>
+          </table>
         `;
       };
 
@@ -608,33 +660,42 @@
         inputs.demand = inputs.quarterDemand;
         inputs.normalCT = inputs.normalCT;
         inputs.normalStaff = inputs.normalStaff;
-        inputs.bunchingPct = parseInt(bunching.value, 10) / 100;
         inputs.boostWeeks = boostWeeks;
-        inputs.slowCT = clampNumber(slowCT.value);
+        inputs.slowCT = clampNumber(slowCT.value, true);
         inputs.slowStaff = inputs.slowStaff;
 
-        const schedule = computeSchedule({
-          demand: inputs.demand,
-          normalCT: inputs.normalCT,
-          slowCT: inputs.slowCT,
-          normalStaff: inputs.normalStaff,
-          slowStaff: inputs.slowStaff,
-          bunchingPct: inputs.bunchingPct,
-          boostWeeks,
-          modes,
-        });
-        schedule.maxWeeklyStaff = schedule.weeklyMaxStaff.length
-          ? Math.max(...schedule.weeklyMaxStaff)
+        const leveledStarts = buildLeveledStartOffsets(inputs.demand, planningRangeDays);
+        const leveledSchedule = computeSchedule(inputs, leveledStarts, planningRangeDays);
+        leveledSchedule.maxWeeklyStaff = leveledSchedule.weeklyMaxStaff.length
+          ? Math.max(...leveledSchedule.weeklyMaxStaff)
           : 0;
 
-        updateFigures(inputs, schedule);
-        updateKpi(schedule, inputs.demand);
-        updateParallelMetrics(schedule, currentRangeDays);
-        await renderGantt(schedule.productRuns, boostWeeks, currentRangeDays);
+        const cappedStarts = buildCappedStartOffsets(
+          {
+            demand: inputs.demand,
+            normalCT: inputs.normalCT,
+            slowCT: inputs.slowCT,
+            boostWeeks,
+            modes,
+            maxParallel: inputs.maxParallelCap,
+          },
+          planningRangeDays
+        );
+        const cappedSchedule = computeSchedule(inputs, cappedStarts, planningRangeDays);
+        cappedSchedule.maxWeeklyStaff = cappedSchedule.weeklyMaxStaff.length
+          ? Math.max(...cappedSchedule.weeklyMaxStaff)
+          : 0;
+
+        updateFigures(inputs, cappedSchedule);
+        updateKpi(cappedSchedule, inputs.demand);
+        updateParallelMetrics(parallelMetricsLeveled, leveledSchedule, planningRangeDays);
+        updateParallelMetrics(parallelMetricsCapped, cappedSchedule, planningRangeDays);
+        await renderGantt("ganttLeveled", leveledSchedule.productRuns, boostWeeks, currentRangeDays);
+        await renderGantt("ganttCapped", cappedSchedule.productRuns, boostWeeks, currentRangeDays);
       };
 
       const exportPpt = async () => {
-        const imageData = await Plotly.toImage("gantt", { format: "png", width: 1200, height: 520 });
+        const imageData = await Plotly.toImage("ganttLeveled", { format: "png", width: 1200, height: 520 });
         const pptx = new PptxGenJS();
         pptx.layout = "LAYOUT_WIDE";
         const slide1 = pptx.addSlide();
@@ -648,7 +709,7 @@
           `Slow cycle-time (days): ${slowCT.value}`,
           `Max staffing → FTE factor: ${byId("fteFactor").value}`,
           `Quarterly demand: ${byId("quarterDemand").value}`,
-          `Bunching (%): ${bunching.value}`,
+          `Max systems in parallel (cap scenario): ${byId("maxParallelCap").value}`,
           `Boost weeks: ${getBoostWeeks().join(", ") || "None"}`,
           `KPI: ${kpi.textContent}`,
           `Max staffing needed (weekly peak): ${figMaxStaff.textContent}`,
@@ -670,6 +731,10 @@
       document.addEventListener("DOMContentLoaded", () => {
         buildBoostGrid(Math.ceil(currentRangeDays / 7));
         buildProductModeList(clampNumber(byId("quarterDemand").value) || 0);
+        const updateScaleButtons = () => {
+          byId("scaleIn").disabled = currentRangeDays <= minRangeDays;
+          byId("scaleOut").disabled = currentRangeDays >= maxRangeDays;
+        };
         inputIds.forEach((id) => {
           const el = byId(id);
           const allowFloat = id === "normalCT" || id === "fteFactor";
@@ -683,10 +748,6 @@
             }
           });
         });
-        bunching.addEventListener("input", () => {
-          bunchingValue.textContent = bunching.value;
-          recalculate();
-        });
         boostGrid.addEventListener("change", (event) => {
           if (event.target.matches("input[type='checkbox']")) {
             enforceBoostLimit(event.target);
@@ -694,20 +755,23 @@
           }
         });
         byId("scaleIn").addEventListener("click", () => {
-          currentRangeDays = Math.max(28, currentRangeDays - 14);
+          currentRangeDays = Math.max(minRangeDays, currentRangeDays - 14);
           const selected = getBoostWeeks();
           buildBoostGrid(Math.ceil(currentRangeDays / 7), selected);
+          updateScaleButtons();
           recalculate();
         });
         byId("scaleOut").addEventListener("click", () => {
-          currentRangeDays = Math.min(140, currentRangeDays + 14);
+          currentRangeDays = Math.min(maxRangeDays, currentRangeDays + 14);
           const selected = getBoostWeeks();
           buildBoostGrid(Math.ceil(currentRangeDays / 7), selected);
+          updateScaleButtons();
           recalculate();
         });
         byId("export").addEventListener("click", () => {
           exportPpt();
         });
+        updateScaleButtons();
         recalculate();
       });
     })();
