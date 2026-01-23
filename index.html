@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Production-Planning Tool</title>
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/simpleheat@0.4.0/simpleheat.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.11.1/dist/pptxgen.min.js" defer></script>
   <style>
     :root {
@@ -131,8 +130,35 @@
     }
     .charts {
       display: grid;
-      grid-template-columns: 70% 30%;
+      grid-template-columns: 1fr;
       gap: 16px;
+    }
+    .gantt-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .gantt-controls {
+      background: #fff;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .gantt-controls .boost-grid {
+      padding: 0;
+    }
+    .scale-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .scale-controls button {
+      padding: 8px 12px;
     }
     #gantt {
       width: 100%;
@@ -141,23 +167,13 @@
       border-radius: 8px;
       border: 1px solid var(--border);
     }
-    #heatmapWrap {
-      background: #fff;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      padding: 10px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+    .cycle-normal input {
+      border-color: #3a7bd5;
+      box-shadow: 0 0 0 1px rgba(58, 123, 213, 0.2);
     }
-    #heatmap {
-      width: 400px;
-      height: 520px;
-      border: 1px solid #eee;
-    }
-    .legend {
-      margin-top: 8px;
-      font-size: 12px;
+    .cycle-slow input {
+      border-color: #d97a00;
+      box-shadow: 0 0 0 1px rgba(217, 122, 0, 0.2);
     }
   </style>
 </head>
@@ -166,27 +182,27 @@
     <div class="input-pane">
       <div class="field">
         <label for="normalStaff">Normal staffing / product</label>
-        <input id="normalStaff" type="number" min="1" value="6" />
+        <input id="normalStaff" type="number" min="1" value="8" />
       </div>
-      <div class="field">
+      <div class="field cycle-normal">
         <label for="normalCT">Normal cycle-time (days)</label>
-        <input id="normalCT" type="number" min="1" value="20" />
+        <input id="normalCT" type="number" min="1" value="14" />
       </div>
       <div class="field">
         <label for="slowStaff">Slow staffing / product</label>
-        <input id="slowStaff" type="number" min="1" value="4" />
+        <input id="slowStaff" type="number" min="1" value="6" />
       </div>
-      <div class="field">
+      <div class="field cycle-slow">
         <label for="slowCT">Slow cycle-time (days)</label>
-        <input id="slowCT" type="text" readonly />
+        <input id="slowCT" type="number" min="1" value="18" />
       </div>
       <div class="field">
         <label for="annualPD">Annual person-days budget</label>
-        <input id="annualPD" type="number" min="1" value="2600" />
+        <input id="annualPD" type="number" min="1" value="9999" />
       </div>
       <div class="field">
         <label for="quarterDemand">Quarterly demand (# done)</label>
-        <input id="quarterDemand" type="number" min="1" value="40" />
+        <input id="quarterDemand" type="number" min="1" value="20" />
       </div>
       <div class="field" style="grid-column: span 2;">
         <label for="bunching">Bunching slider (0–100 %)</label>
@@ -195,12 +211,8 @@
           <span id="bunchingValue">30</span>
         </div>
       </div>
-      <div class="field" style="grid-column: span 2; align-items: flex-start;">
-        <label>Productivity boost weeks (W1…W13)</label>
-        <div class="boost-grid" id="boostGrid"></div>
-      </div>
       <div class="actions" style="grid-column: span 2;">
-        <button id="recalc">RECALCULATE</button>
+        <button id="swapCycleTimes" class="secondary">SWAP SLOW/NORMAL</button>
         <button id="export" class="secondary">EXPORT → PPT</button>
       </div>
     </div>
@@ -232,10 +244,19 @@
     </div>
 
     <div class="charts">
-      <div id="gantt"></div>
-      <div id="heatmapWrap">
-        <canvas id="heatmap" width="400" height="520"></canvas>
-        <div class="legend">Darker = more products in work</div>
+      <div class="gantt-panel">
+        <div class="gantt-controls">
+          <div>
+            <strong>Productivity boost weeks (W1…W13)</strong>
+            <div class="boost-grid" id="boostGrid"></div>
+          </div>
+          <div class="scale-controls">
+            <span><strong>Scale</strong></span>
+            <button id="scaleIn">Scale in</button>
+            <button id="scaleOut" class="secondary">Scale out</button>
+          </div>
+        </div>
+        <div id="gantt"></div>
       </div>
     </div>
   </div>
@@ -243,7 +264,7 @@
   <script>
     (() => {
       const byId = (id) => document.getElementById(id);
-      const inputIds = ["normalStaff", "normalCT", "slowStaff", "annualPD", "quarterDemand"];
+      const inputIds = ["normalStaff", "normalCT", "slowStaff", "slowCT", "annualPD", "quarterDemand"];
       const boostGrid = byId("boostGrid");
       const bunching = byId("bunching");
       const bunchingValue = byId("bunchingValue");
@@ -253,8 +274,8 @@
       const figDailyCap = byId("figDailyCap");
       const figCompleted = byId("figCompleted");
       const figPeak = byId("figPeak");
-      const heatCanvas = byId("heatmap");
       let previousValues = {};
+      let currentRangeDays = 91;
 
       const clampInt = (value) => {
         const intVal = parseInt(value, 10);
@@ -287,18 +308,6 @@
         if (checked.length > 8) {
           changed.checked = false;
         }
-      };
-
-      const updateSlowCycleTime = () => {
-        const normalStaff = clampInt(byId("normalStaff").value);
-        const normalCT = clampInt(byId("normalCT").value);
-        const slowStaffVal = clampInt(byId("slowStaff").value);
-        if (!normalStaff || !normalCT || !slowStaffVal) {
-          return;
-        }
-        const calc = Math.ceil(normalCT * (normalStaff / slowStaffVal));
-        slowCT.value = calc;
-        figSlowCT.textContent = calc;
       };
 
       const validateInputs = (changedId) => {
@@ -371,11 +380,16 @@
         return { productRuns, activeByDay, capacityByDay, maxEnd };
       };
 
-      const renderGantt = async (runs, boostWeeks) => {
+      const getWeekNumber = (dayIndex) => Math.floor(dayIndex / 7) + 1;
+
+      const renderGantt = async (runs, boostWeeks, rangeDays = 91) => {
         const baseDate = new Date(2024, 0, 1);
+        const weekCount = Math.ceil(rangeDays / 7);
         const data = runs.map((run) => {
           const startDate = new Date(baseDate.getTime() + run.start * 86400000);
           const duration = (run.end - run.start + 1) * 86400000;
+          const startWeek = getWeekNumber(run.start);
+          const endWeek = getWeekNumber(run.end);
           return {
             type: "bar",
             orientation: "h",
@@ -383,7 +397,8 @@
             x: [duration],
             base: [startDate],
             marker: { color: "#3a7bd5" },
-            hovertemplate: `${run.name}<br>Start: %{base|%b %d}<br>End: %{x|%b %d}<extra></extra>`,
+            hovertemplate: `${run.name}<br>Start: W${startWeek}<br>End: W${endWeek}<extra></extra>`,
+            name: run.name,
           };
         });
 
@@ -408,55 +423,18 @@
           margin: { l: 60, r: 20, t: 20, b: 40 },
           xaxis: {
             type: "date",
-            range: [baseDate, new Date(baseDate.getTime() + 91 * 86400000)],
-            tickformat: "%b %d",
+            range: [baseDate, new Date(baseDate.getTime() + rangeDays * 86400000)],
+            tickvals: Array.from({ length: weekCount }, (_, i) => new Date(baseDate.getTime() + i * 7 * 86400000)),
+            ticktext: Array.from({ length: weekCount }, (_, i) => `W${i + 1}`),
           },
           yaxis: { automargin: true },
           shapes,
           paper_bgcolor: "#fff",
           plot_bgcolor: "#fff",
+          showlegend: false,
         };
 
         await Plotly.newPlot("gantt", data, layout, { displayModeBar: false });
-      };
-
-      const renderHeatmap = (activeByDay, boostWeeks) => {
-        const ctx = heatCanvas.getContext("2d");
-        ctx.clearRect(0, 0, heatCanvas.width, heatCanvas.height);
-        const heat = simpleheat(heatCanvas);
-        const colWidth = heatCanvas.width / 13;
-        const rowHeight = 40;
-        const weekValues = [];
-        for (let w = 0; w < 13; w += 1) {
-          const start = w * 7;
-          const end = start + 7;
-          const values = activeByDay.slice(start, end).filter((v) => v !== undefined);
-          const maxVal = values.length ? Math.max(...values) : 0;
-          weekValues.push(maxVal);
-        }
-        const maxParallel = Math.max(...weekValues, 1);
-        const points = [];
-        for (let col = 0; col < 13; col += 1) {
-          for (let row = 0; row < 13; row += 1) {
-            points.push([
-              col * colWidth + colWidth / 2,
-              row * rowHeight + rowHeight / 2,
-              weekValues[col],
-            ]);
-          }
-        }
-        heat.data(points);
-        heat.max(maxParallel);
-        heat.radius(20, 10);
-        heat.draw(0.05);
-
-        ctx.save();
-        ctx.fillStyle = "rgba(255,255,0,0.2)";
-        boostWeeks.forEach((week) => {
-          const x = (week - 1) * colWidth;
-          ctx.fillRect(x, 0, colWidth, heatCanvas.height);
-        });
-        ctx.restore();
       };
 
       const updateFigures = (inputs, schedule) => {
@@ -465,6 +443,7 @@
         figCompleted.textContent = completed;
         const peak = Math.max(...schedule.activeByDay.slice(0, 91).filter(Boolean), 0);
         figPeak.textContent = peak;
+        figSlowCT.textContent = inputs.slowCT;
       };
 
       const updateKpi = (schedule, normalStaff) => {
@@ -497,7 +476,7 @@
         inputs.bunchingPct = parseInt(bunching.value, 10) / 100;
         inputs.dailyCapacity = inputs.annualPD / 260;
         inputs.boostWeeks = boostWeeks;
-        updateSlowCycleTime();
+        inputs.slowCT = inputs.slowCT;
 
         const schedule = computeSchedule({
           demand: inputs.demand,
@@ -510,8 +489,7 @@
 
         updateFigures(inputs, schedule);
         updateKpi(schedule, inputs.normalStaff);
-        await renderGantt(schedule.productRuns, boostWeeks);
-        renderHeatmap(schedule.activeByDay, boostWeeks);
+        await renderGantt(schedule.productRuns, boostWeeks, currentRangeDays);
       };
 
       const exportPpt = async () => {
@@ -554,25 +532,43 @@
           previousValues[id] = clampInt(el.value) || 1;
           el.addEventListener("change", () => {
             if (validateInputs(id)) {
-              updateSlowCycleTime();
+              recalculate();
             }
           });
         });
         bunching.addEventListener("input", () => {
           bunchingValue.textContent = bunching.value;
+          recalculate();
         });
         boostGrid.addEventListener("change", (event) => {
           if (event.target.matches("input[type='checkbox']")) {
             enforceBoostLimit(event.target);
+            recalculate();
           }
         });
-        byId("recalc").addEventListener("click", () => {
+        byId("swapCycleTimes").addEventListener("click", () => {
+          const normalValue = clampInt(byId("normalCT").value);
+          const slowValue = clampInt(byId("slowCT").value);
+          if (!normalValue || !slowValue) {
+            return;
+          }
+          byId("normalCT").value = slowValue;
+          byId("slowCT").value = normalValue;
+          previousValues["normalCT"] = slowValue;
+          previousValues["slowCT"] = normalValue;
+          recalculate();
+        });
+        byId("scaleIn").addEventListener("click", () => {
+          currentRangeDays = Math.max(28, currentRangeDays - 14);
+          recalculate();
+        });
+        byId("scaleOut").addEventListener("click", () => {
+          currentRangeDays = Math.min(140, currentRangeDays + 14);
           recalculate();
         });
         byId("export").addEventListener("click", () => {
           exportPpt();
         });
-        updateSlowCycleTime();
         recalculate();
       });
     })();
