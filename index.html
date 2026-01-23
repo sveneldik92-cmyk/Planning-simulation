@@ -78,6 +78,42 @@
     .boost-item {
       text-align: center;
       font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .product-mode-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 8px;
+      width: 100%;
+    }
+    .product-mode-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: #3b4a5a;
+    }
+    .product-mode-hint {
+      font-size: 12px;
+      color: #7a8794;
+      margin-top: 4px;
+    }
+    .parallel-metrics {
+      background: #fff;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      padding: 10px 16px;
+    }
+    .parallel-metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+      font-size: 12px;
+      color: #3b4a5a;
     }
     .actions {
       display: flex;
@@ -194,7 +230,7 @@
       </div>
       <div class="field cycle-slow">
         <label for="slowCT">Slow cycle-time (days)</label>
-        <input id="slowCT" type="number" min="1" value="18" />
+        <input id="slowCT" type="number" min="1" value="18" readonly />
       </div>
       <div class="field">
         <label for="annualPD">Annual person-days budget</label>
@@ -211,8 +247,14 @@
           <span id="bunchingValue">30</span>
         </div>
       </div>
+      <div class="field" style="grid-column: span 2; align-items: flex-start;">
+        <label>Product speed selection</label>
+        <div style="flex: 1;">
+          <div id="productModeList" class="product-mode-grid"></div>
+          <div class="product-mode-hint">Check the box to mark a product as slow (unchecked = fast).</div>
+        </div>
+      </div>
       <div class="actions" style="grid-column: span 2;">
-        <button id="swapCycleTimes" class="secondary">SWAP SLOW/NORMAL</button>
         <button id="export" class="secondary">EXPORT → PPT</button>
       </div>
     </div>
@@ -256,6 +298,7 @@
             <button id="scaleOut" class="secondary">Scale out</button>
           </div>
         </div>
+        <div class="parallel-metrics" id="parallelMetrics"></div>
         <div id="gantt"></div>
       </div>
     </div>
@@ -264,8 +307,9 @@
   <script>
     (() => {
       const byId = (id) => document.getElementById(id);
-      const inputIds = ["normalStaff", "normalCT", "slowStaff", "slowCT", "annualPD", "quarterDemand"];
+      const inputIds = ["normalStaff", "normalCT", "slowStaff", "annualPD", "quarterDemand"];
       const boostGrid = byId("boostGrid");
+      const productModeList = byId("productModeList");
       const bunching = byId("bunching");
       const bunchingValue = byId("bunchingValue");
       const slowCT = byId("slowCT");
@@ -274,8 +318,10 @@
       const figDailyCap = byId("figDailyCap");
       const figCompleted = byId("figCompleted");
       const figPeak = byId("figPeak");
+      const parallelMetrics = byId("parallelMetrics");
       let previousValues = {};
       let currentRangeDays = 91;
+      let productModes = [];
 
       const clampInt = (value) => {
         const intVal = parseInt(value, 10);
@@ -286,14 +332,14 @@
         for (let i = 1; i <= 13; i += 1) {
           const wrapper = document.createElement("label");
           wrapper.className = "boost-item";
+          const caption = document.createElement("div");
+          caption.textContent = `W${i}`;
+          wrapper.appendChild(caption);
           const checkbox = document.createElement("input");
           checkbox.type = "checkbox";
           checkbox.value = i;
           checkbox.dataset.week = i;
           wrapper.appendChild(checkbox);
-          const caption = document.createElement("div");
-          caption.textContent = `W${i}`;
-          wrapper.appendChild(caption);
           boostGrid.appendChild(wrapper);
         }
       };
@@ -329,8 +375,48 @@
         return true;
       };
 
+      const buildProductModeList = (demand) => {
+        const existingModes = getProductModes();
+        productModeList.innerHTML = "";
+        productModes = Array.from({ length: demand }, (_, i) => existingModes[i] || false);
+        for (let i = 0; i < demand; i += 1) {
+          const label = document.createElement("label");
+          label.className = "product-mode-item";
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.dataset.product = i;
+          checkbox.checked = productModes[i];
+          const text = document.createElement("span");
+          text.textContent = `P${i + 1} slow`;
+          label.appendChild(checkbox);
+          label.appendChild(text);
+          productModeList.appendChild(label);
+        }
+      };
+
+      const getProductModes = () => {
+        const checks = Array.from(productModeList.querySelectorAll("input[type='checkbox']"));
+        const modes = [];
+        checks.forEach((el) => {
+          const idx = parseInt(el.dataset.product, 10);
+          modes[idx] = el.checked;
+        });
+        return modes;
+      };
+
+      const updateSlowCT = () => {
+        const normalCTVal = clampInt(byId("normalCT").value);
+        const normalStaffVal = clampInt(byId("normalStaff").value);
+        const slowStaffVal = clampInt(byId("slowStaff").value);
+        if (!normalCTVal || !normalStaffVal || !slowStaffVal) {
+          return;
+        }
+        const calculated = Math.max(1, Math.round((normalCTVal * normalStaffVal) / slowStaffVal));
+        slowCT.value = calculated;
+      };
+
       const computeSchedule = (inputs) => {
-        const { demand, normalCT, normalStaff, bunchingPct, boostWeeks, dailyCapacity } = inputs;
+        const { demand, normalCT, slowCT, normalStaff, slowStaff, bunchingPct, boostWeeks, dailyCapacity, modes } = inputs;
         const startOffsets = [];
         const uniformInterval = Math.floor(91 / demand);
         const lateStart = Math.max(0, 91 - normalCT);
@@ -340,7 +426,8 @@
           startOffsets.push(Math.max(0, mixed));
         }
 
-        const activeByDay = [];
+        const activeProductsByDay = [];
+        const activeStaffByDay = [];
         const productRuns = [];
         let maxEnd = 0;
 
@@ -350,10 +437,13 @@
         };
 
         for (let i = 0; i < demand; i += 1) {
+          const isSlow = modes[i] || false;
+          const cycleTime = isSlow ? slowCT : normalCT;
+          const staff = isSlow ? slowStaff : normalStaff;
           let work = 0;
           let day = startOffsets[i];
           const days = [];
-          while (work < normalCT && day < 365) {
+          while (work < cycleTime && day < 365) {
             const boosted = isBoostedDay(day);
             work += boosted ? 1.125 : 1;
             days.push(day);
@@ -365,9 +455,11 @@
             name: `P${i + 1}`,
             start: startOffsets[i],
             end: endDay,
+            isSlow,
           });
           days.forEach((d) => {
-            activeByDay[d] = (activeByDay[d] || 0) + 1;
+            activeProductsByDay[d] = (activeProductsByDay[d] || 0) + 1;
+            activeStaffByDay[d] = (activeStaffByDay[d] || 0) + staff;
           });
         }
 
@@ -377,7 +469,7 @@
           capacityByDay[d] = boosted ? dailyCapacity * 1.125 : dailyCapacity;
         }
 
-        return { productRuns, activeByDay, capacityByDay, maxEnd };
+        return { productRuns, activeProductsByDay, activeStaffByDay, capacityByDay, maxEnd };
       };
 
       const getWeekNumber = (dayIndex) => Math.floor(dayIndex / 7) + 1;
@@ -396,7 +488,7 @@
             y: [run.name],
             x: [duration],
             base: [startDate],
-            marker: { color: "#3a7bd5" },
+            marker: { color: run.isSlow ? "#d97a00" : "#3a7bd5" },
             hovertemplate: `${run.name}<br>Start: W${startWeek}<br>End: W${endWeek}<extra></extra>`,
             name: run.name,
           };
@@ -441,7 +533,7 @@
         figDailyCap.textContent = inputs.dailyCapacity.toFixed(2);
         const completed = schedule.productRuns.filter((run) => run.end <= 90).length;
         figCompleted.textContent = completed;
-        const peak = Math.max(...schedule.activeByDay.slice(0, 91).filter(Boolean), 0);
+        const peak = Math.max(...schedule.activeProductsByDay.slice(0, 91).filter(Boolean), 0);
         figPeak.textContent = peak;
         figSlowCT.textContent = inputs.slowCT;
       };
@@ -450,8 +542,7 @@
         const maxDay = schedule.maxEnd || 0;
         let ok = true;
         for (let d = 0; d <= maxDay; d += 1) {
-          const active = schedule.activeByDay[d] || 0;
-          const required = active * normalStaff;
+          const required = schedule.activeStaffByDay[d] || 0;
           if (required > schedule.capacityByDay[d]) {
             ok = false;
             break;
@@ -461,8 +552,33 @@
         kpi.className = `kpi ${ok ? "ok" : "bad"}`;
       };
 
+      const updateParallelMetrics = (schedule, rangeDays = 91) => {
+        const weeks = Math.ceil(rangeDays / 7);
+        const metrics = [];
+        for (let w = 0; w < weeks; w += 1) {
+          const startDay = w * 7;
+          const endDay = Math.min(rangeDays - 1, startDay + 6);
+          let maxParallel = 0;
+          for (let d = startDay; d <= endDay; d += 1) {
+            const active = schedule.activeProductsByDay[d] || 0;
+            if (active > maxParallel) {
+              maxParallel = active;
+            }
+          }
+          metrics.push({ week: w + 1, maxParallel });
+        }
+        const summary = metrics
+          .map((item) => `<div><strong>W${item.week}</strong>: ${item.maxParallel}</div>`)
+          .join("");
+        parallelMetrics.innerHTML = `
+          <div><strong>Max systems in parallel by week</strong></div>
+          <div class="parallel-metrics-grid">${summary}</div>
+        `;
+      };
+
       const recalculate = async () => {
         const inputs = {};
+        updateSlowCT();
         for (const id of inputIds) {
           if (!validateInputs(id)) {
             return;
@@ -470,25 +586,31 @@
           inputs[id] = clampInt(byId(id).value);
         }
         const boostWeeks = getBoostWeeks();
+        const modes = getProductModes();
         inputs.demand = inputs.quarterDemand;
         inputs.normalCT = inputs.normalCT;
         inputs.normalStaff = inputs.normalStaff;
         inputs.bunchingPct = parseInt(bunching.value, 10) / 100;
         inputs.dailyCapacity = inputs.annualPD / 260;
         inputs.boostWeeks = boostWeeks;
-        inputs.slowCT = inputs.slowCT;
+        inputs.slowCT = clampInt(slowCT.value);
+        inputs.slowStaff = inputs.slowStaff;
 
         const schedule = computeSchedule({
           demand: inputs.demand,
           normalCT: inputs.normalCT,
+          slowCT: inputs.slowCT,
           normalStaff: inputs.normalStaff,
+          slowStaff: inputs.slowStaff,
           bunchingPct: inputs.bunchingPct,
           boostWeeks,
           dailyCapacity: inputs.dailyCapacity,
+          modes,
         });
 
         updateFigures(inputs, schedule);
         updateKpi(schedule, inputs.normalStaff);
+        updateParallelMetrics(schedule, currentRangeDays);
         await renderGantt(schedule.productRuns, boostWeeks, currentRangeDays);
       };
 
@@ -527,11 +649,15 @@
 
       document.addEventListener("DOMContentLoaded", () => {
         buildBoostGrid();
+        buildProductModeList(clampInt(byId("quarterDemand").value) || 0);
         inputIds.forEach((id) => {
           const el = byId(id);
           previousValues[id] = clampInt(el.value) || 1;
           el.addEventListener("change", () => {
             if (validateInputs(id)) {
+              if (id === "quarterDemand") {
+                buildProductModeList(clampInt(byId("quarterDemand").value) || 0);
+              }
               recalculate();
             }
           });
@@ -540,23 +666,16 @@
           bunchingValue.textContent = bunching.value;
           recalculate();
         });
+        productModeList.addEventListener("change", (event) => {
+          if (event.target.matches("input[type='checkbox']")) {
+            recalculate();
+          }
+        });
         boostGrid.addEventListener("change", (event) => {
           if (event.target.matches("input[type='checkbox']")) {
             enforceBoostLimit(event.target);
             recalculate();
           }
-        });
-        byId("swapCycleTimes").addEventListener("click", () => {
-          const normalValue = clampInt(byId("normalCT").value);
-          const slowValue = clampInt(byId("slowCT").value);
-          if (!normalValue || !slowValue) {
-            return;
-          }
-          byId("normalCT").value = slowValue;
-          byId("slowCT").value = normalValue;
-          previousValues["normalCT"] = slowValue;
-          previousValues["slowCT"] = normalValue;
-          recalculate();
         });
         byId("scaleIn").addEventListener("click", () => {
           currentRangeDays = Math.max(28, currentRangeDays - 14);
