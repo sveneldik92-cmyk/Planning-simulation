@@ -79,6 +79,29 @@
     .field small {
       color: #7a8794;
     }
+    .product-mode-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 8px;
+      width: 100%;
+    }
+    .product-mode-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 13px;
+      color: #3b4a5a;
+      background: #f4f6fb;
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid #e3e8f0;
+    }
+    .product-mode-item select {
+      font-size: 12px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      border: 1px solid #cdd5df;
+    }
     .kpi-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -127,6 +150,18 @@
     .legend .swatch.weekend {
       background: var(--weekend);
       border: 1px solid #e3e7ee;
+    }
+    .legend .swatch.staffing {
+      width: 120px;
+      height: 10px;
+      border-radius: 6px;
+      background: linear-gradient(90deg, #2eaf5d, #d94848);
+      border: 1px solid #d5dbe5;
+    }
+    .legend .legend-range {
+      font-size: 12px;
+      color: #6d7886;
+      margin-left: 4px;
     }
     details.section {
       background: #fff;
@@ -314,6 +349,15 @@
       font-size: 12px;
       color: #7a8794;
     }
+    .mini-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .mini-section h4 {
+      margin: 0;
+      color: var(--dark-blue);
+    }
     .fte-details {
       padding: 4px 0 0;
       font-size: 13px;
@@ -350,24 +394,42 @@
           <input id="productCount" type="number" min="1" value="12" />
         </div>
         <div class="field">
-          <label for="cycleTime">Cycle time (weekdays)</label>
-          <input id="cycleTime" type="number" min="1" value="10" />
-          <small>Defines how many weekday columns the parallel path grid shows.</small>
+          <label for="normalCycleTime">Normal cycle time (weekdays)</label>
+          <input id="normalCycleTime" type="number" min="1" value="10" />
+          <small>Defines how many weekday columns the normal staffing grid shows.</small>
+        </div>
+        <div class="field">
+          <label for="slowCycleTime">Slow cycle time (weekdays)</label>
+          <input id="slowCycleTime" type="number" min="1" value="14" />
+          <small>Defines how many weekday columns the slow staffing grid shows.</small>
         </div>
         <div class="field">
           <label for="fteFactor">FTE conversion (per person)</label>
           <input id="fteFactor" type="number" min="0.1" step="0.1" value="0.2" />
           <small>Example: 1 person × 0.2 = 0.2 FTE.</small>
         </div>
+        <div class="field" style="grid-column: 1 / -1;">
+          <label>Staffing type per product</label>
+          <div class="product-mode-grid" id="productModeGrid"></div>
+          <small>Select <strong>Normal</strong> or <strong>Slow</strong> staffing for each product.</small>
+        </div>
       </section>
     </details>
 
     <details class="section" open>
-      <summary>Parallel path staffing per day</summary>
+      <summary>Staffing per day</summary>
       <section class="parallel-panel">
         <p class="note">Type a value and your cursor advances to the next cell automatically.</p>
-        <div class="mini-gantt" id="parallelGantt"></div>
-        <div class="mini-note">Two parallel sequences let you split staffing needs per day while keeping the total in sync with the main sequence.</div>
+        <div class="mini-section">
+          <h4>Normal staffing per day</h4>
+          <div class="mini-gantt" id="normalParallelGantt"></div>
+          <div class="mini-note">Two parallel sequences let you split normal staffing needs per day while keeping the total in sync with the main sequence.</div>
+        </div>
+        <div class="mini-section">
+          <h4>Slow staffing per day</h4>
+          <div class="mini-gantt" id="slowParallelGantt"></div>
+          <div class="mini-note">Use a lower-staff, slower sequence to model the slow variant.</div>
+        </div>
       </section>
     </details>
 
@@ -409,6 +471,7 @@
       <div class="legend">
         <div class="chip"><span class="swatch"></span> Active sequence work</div>
         <div class="chip"><span class="swatch weekend"></span> Weekend (never scheduled)</div>
+        <div class="chip"><span class="swatch staffing"></span> Staffing intensity <span class="legend-range" id="staffingLegendRange">-</span></div>
       </div>
       <section class="gantt-wrapper">
         <div class="gantt-header">
@@ -444,23 +507,30 @@
       const quarterStartDow = 1; // Monday
 
       const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-      const defaultParallelPrimary = [4, 4, 4, 3, 3, 2, 2, 2, 1, 1];
+      const defaultNormalPrimary = [4, 4, 4, 3, 3, 2, 2, 2, 1, 1];
+      const defaultSlowPrimary = [3, 3, 3, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1];
 
       const byId = (id) => document.getElementById(id);
       const productCountInput = byId("productCount");
       const planningModeInput = byId("planningMode");
-      const cycleTimeInput = byId("cycleTime");
+      const normalCycleTimeInput = byId("normalCycleTime");
+      const slowCycleTimeInput = byId("slowCycleTime");
       const fteFactorInput = byId("fteFactor");
       const ganttBody = byId("ganttBody");
       const weekHeader = byId("weekHeader");
-      const parallelGantt = byId("parallelGantt");
+      const normalParallelGantt = byId("normalParallelGantt");
+      const slowParallelGantt = byId("slowParallelGantt");
       const kpiCycle = byId("kpiCycle");
       const kpiFte = byId("kpiFte");
       const kpiWip = byId("kpiWip");
       const fteDeepDive = byId("fteDeepDive");
+      const productModeGrid = byId("productModeGrid");
+      const staffingLegendRange = byId("staffingLegendRange");
 
       let startDays = [];
-      let parallelStaff = { primary: [], secondary: [] };
+      let normalStaff = { primary: [], secondary: [] };
+      let slowStaff = { primary: [], secondary: [] };
+      let productModes = [];
       let dragging = null;
 
       const getDow = (dayIndex) => (quarterStartDow + dayIndex) % 7;
@@ -500,28 +570,32 @@
         return Math.min(day, maxDay);
       };
 
-      const getCycleTime = () => Math.max(1, Number.parseInt(cycleTimeInput.value, 10) || 1);
+      const getCycleTime = (mode) => {
+        const source = mode === "slow" ? slowCycleTimeInput : normalCycleTimeInput;
+        return Math.max(1, Number.parseInt(source.value, 10) || 1);
+      };
 
-      const ensureParallelLength = (length) => {
-        const current = parallelStaff.primary.length;
+      const ensureStaffLength = (staffSet, length) => {
+        const current = staffSet.primary.length;
         if (current === length) {
           return;
         }
         if (current > length) {
-          parallelStaff.primary = parallelStaff.primary.slice(0, length);
-          parallelStaff.secondary = parallelStaff.secondary.slice(0, length);
+          staffSet.primary = staffSet.primary.slice(0, length);
+          staffSet.secondary = staffSet.secondary.slice(0, length);
           return;
         }
         const primaryFill = Array.from({ length: length - current }, () => 0);
         const secondaryFill = Array.from({ length: length - current }, () => 0);
-        parallelStaff.primary = parallelStaff.primary.concat(primaryFill);
-        parallelStaff.secondary = parallelStaff.secondary.concat(secondaryFill);
+        staffSet.primary = staffSet.primary.concat(primaryFill);
+        staffSet.secondary = staffSet.secondary.concat(secondaryFill);
       };
 
-      const getSequenceStaff = () => {
-        const length = getCycleTime();
-        ensureParallelLength(length);
-        return parallelStaff.primary.map((value, index) => value + (parallelStaff.secondary[index] || 0));
+      const getSequenceStaff = (mode) => {
+        const length = getCycleTime(mode);
+        const staffSet = mode === "slow" ? slowStaff : normalStaff;
+        ensureStaffLength(staffSet, length);
+        return staffSet.primary.map((value, index) => value + (staffSet.secondary[index] || 0));
       };
 
       const lastWorkingDay = () => {
@@ -630,14 +704,72 @@
         return segments;
       };
 
-      const updateKpis = (sequenceStaff, dailyStaff, dailyActive) => {
+      const splitStaffSegments = (workDays, staffValues) => {
+        const segments = [];
+        if (!workDays.length) {
+          return segments;
+        }
+        let segmentStart = workDays[0];
+        let prev = workDays[0];
+        let currentStaff = staffValues[0] ?? 0;
+        for (let i = 1; i < workDays.length; i += 1) {
+          const day = workDays[i];
+          const expected = (prev + 1) % rangeDays;
+          const wrapped = prev === rangeDays - 1 && day === 0;
+          const staff = staffValues[i] ?? 0;
+          if (day !== expected || wrapped || staff !== currentStaff) {
+            segments.push({ start: segmentStart, end: prev, staff: currentStaff });
+            segmentStart = day;
+            currentStaff = staff;
+          }
+          prev = day;
+        }
+        segments.push({ start: segmentStart, end: prev, staff: currentStaff });
+        return segments;
+      };
+
+      const updateKpis = (normalSequence, slowSequence, dailyStaff, dailyActive) => {
         const maxStaff = Math.max(...dailyStaff, 0);
         const maxWip = Math.max(...dailyActive, 0);
         const fteFactor = Number.parseFloat(fteFactorInput.value) || 0;
-        kpiCycle.textContent = `${sequenceStaff.length} weekdays`;
+        kpiCycle.textContent = `Normal ${normalSequence.length} · Slow ${slowSequence.length} weekdays`;
         kpiFte.textContent = `${(maxStaff * fteFactor).toFixed(1)} FTE`;
         kpiWip.textContent = `${maxWip} sequences`;
-        updateFteDeepDive(sequenceStaff, dailyStaff, dailyActive, maxStaff, maxWip);
+        updateFteDeepDive(normalSequence, slowSequence, dailyStaff, dailyActive, maxStaff, maxWip);
+      };
+
+      const renderProductModeControls = () => {
+        productModeGrid.innerHTML = "";
+        productModes.forEach((isSlow, index) => {
+          const wrapper = document.createElement("div");
+          wrapper.className = "product-mode-item";
+          const label = document.createElement("span");
+          label.textContent = `Product ${index + 1}`;
+          const select = document.createElement("select");
+          select.dataset.index = index;
+          const optionNormal = document.createElement("option");
+          optionNormal.value = "normal";
+          optionNormal.textContent = "Normal";
+          const optionSlow = document.createElement("option");
+          optionSlow.value = "slow";
+          optionSlow.textContent = "Slow";
+          select.appendChild(optionNormal);
+          select.appendChild(optionSlow);
+          select.value = isSlow ? "slow" : "normal";
+          select.addEventListener("change", (event) => {
+            const idx = Number.parseInt(event.target.dataset.index, 10);
+            productModes[idx] = event.target.value === "slow";
+            renderGantt({ renderParallel: false });
+          });
+          wrapper.appendChild(label);
+          wrapper.appendChild(select);
+          productModeGrid.appendChild(wrapper);
+        });
+      };
+
+      const buildProductModeList = (count) => {
+        productModes = Array.from({ length: count }, (_, i) => productModes[i] || false);
+        renderProductModeControls();
       };
 
       const focusNextCell = (rowEl, index) => {
@@ -649,11 +781,11 @@
         }
       };
 
-      const renderParallelGantt = (length) => {
-        ensureParallelLength(length);
+      const renderStaffGrid = (targetEl, staffSet, length) => {
+        ensureStaffLength(staffSet, length);
 
-        parallelGantt.style.setProperty("--mini-days", String(length));
-        parallelGantt.innerHTML = "";
+        targetEl.style.setProperty("--mini-days", String(length));
+        targetEl.innerHTML = "";
 
         const header = document.createElement("div");
         header.className = "mini-gantt-row mini-gantt-header";
@@ -665,7 +797,7 @@
           cell.textContent = `${i + 1}`;
           header.appendChild(cell);
         }
-        parallelGantt.appendChild(header);
+        targetEl.appendChild(header);
 
         const rows = [
           { key: "primary", label: "Primary path" },
@@ -686,9 +818,9 @@
             const input = document.createElement("input");
             input.type = "number";
             input.min = "0";
-            input.value = String(parallelStaff[row.key][i] ?? 0);
+            input.value = String(staffSet[row.key][i] ?? 0);
             input.addEventListener("input", (event) => {
-              parallelStaff[row.key][i] = Number.parseInt(input.value, 10) || 0;
+              staffSet[row.key][i] = Number.parseInt(input.value, 10) || 0;
               renderGantt({ renderParallel: false });
               const isDelete = event.inputType && event.inputType.startsWith("delete");
               if (!isDelete && input.value !== "") {
@@ -704,19 +836,29 @@
             cell.appendChild(input);
             rowEl.appendChild(cell);
           }
-          parallelGantt.appendChild(rowEl);
+          targetEl.appendChild(rowEl);
         });
       };
 
       const initializeParallelStaff = () => {
-        const length = getCycleTime();
-        parallelStaff = {
-          primary: defaultParallelPrimary.slice(0, length),
-          secondary: Array.from({ length }, () => 0),
+        const normalLength = getCycleTime("normal");
+        const slowLength = getCycleTime("slow");
+        normalStaff = {
+          primary: defaultNormalPrimary.slice(0, normalLength),
+          secondary: Array.from({ length: normalLength }, () => 0),
         };
-        if (parallelStaff.primary.length < length) {
-          parallelStaff.primary = parallelStaff.primary.concat(
-            Array.from({ length: length - parallelStaff.primary.length }, () => 0)
+        slowStaff = {
+          primary: defaultSlowPrimary.slice(0, slowLength),
+          secondary: Array.from({ length: slowLength }, () => 0),
+        };
+        if (normalStaff.primary.length < normalLength) {
+          normalStaff.primary = normalStaff.primary.concat(
+            Array.from({ length: normalLength - normalStaff.primary.length }, () => 0)
+          );
+        }
+        if (slowStaff.primary.length < slowLength) {
+          slowStaff.primary = slowStaff.primary.concat(
+            Array.from({ length: slowLength - slowStaff.primary.length }, () => 0)
           );
         }
       };
@@ -733,15 +875,40 @@
 
       const renderGantt = ({ renderParallel = true } = {}) => {
         const productCount = Number.parseInt(productCountInput.value, 10) || 0;
-        const sequenceStaff = getSequenceStaff();
+        const normalSequence = getSequenceStaff("normal");
+        const slowSequence = getSequenceStaff("slow");
+        const maxSequenceLength = Math.max(normalSequence.length, slowSequence.length);
         const dailyStaff = Array.from({ length: rangeDays }, () => 0);
         const dailyActive = Array.from({ length: rangeDays }, () => 0);
 
+        if (productModes.length !== productCount) {
+          buildProductModeList(productCount);
+        }
+
         if (startDays.length !== productCount) {
-          startDays = buildStartDays(productCount, planningModeInput.value, sequenceStaff.length);
+          startDays = buildStartDays(productCount, planningModeInput.value, maxSequenceLength);
         }
 
         ganttBody.innerHTML = "";
+        const staffingScaleValues = [];
+        for (let i = 0; i < productCount; i += 1) {
+          const useSlow = productModes[i];
+          const sequence = useSlow ? slowSequence : normalSequence;
+          staffingScaleValues.push(...sequence);
+        }
+        const minStaff = staffingScaleValues.length ? Math.min(...staffingScaleValues) : 0;
+        const maxStaff = staffingScaleValues.length ? Math.max(...staffingScaleValues) : 0;
+        const staffRange = Math.max(1, maxStaff - minStaff);
+        const startColor = { r: 46, g: 175, b: 93 };
+        const endColor = { r: 217, g: 72, b: 72 };
+        const staffToColor = (staff) => {
+          const t = Math.min(1, Math.max(0, (staff - minStaff) / staffRange));
+          const r = Math.round(startColor.r + (endColor.r - startColor.r) * t);
+          const g = Math.round(startColor.g + (endColor.g - startColor.g) * t);
+          const b = Math.round(startColor.b + (endColor.b - startColor.b) * t);
+          return `rgb(${r}, ${g}, ${b})`;
+        };
+        staffingLegendRange.textContent = `${minStaff.toFixed(1)} → ${maxStaff.toFixed(1)} people`;
         for (let i = 0; i < productCount; i += 1) {
           const row = document.createElement("div");
           row.className = "gantt-row";
@@ -761,15 +928,18 @@
             timeline.appendChild(cell);
           }
 
+          const useSlow = productModes[i];
+          const sequenceStaff = useSlow ? slowSequence : normalSequence;
+          const sequenceLength = sequenceStaff.length;
           const startDay = adjustToWeekday(startDays[i] ?? 0);
           startDays[i] = startDay;
-          const workDays = buildWorkDays(startDay, sequenceStaff.length);
+          const workDays = buildWorkDays(startDay, sequenceLength);
           workDays.forEach((day, idx) => {
             dailyActive[day] += 1;
             dailyStaff[day] += sequenceStaff[idx] || 0;
           });
 
-          const segments = splitSegments(workDays);
+          const segments = splitStaffSegments(workDays, sequenceStaff);
           segments.forEach((segment, segmentIndex) => {
             const bar = document.createElement("div");
             bar.className = "sequence-bar";
@@ -778,6 +948,7 @@
             bar.style.gridColumnStart = segment.start + 1;
             bar.style.gridColumnEnd = segment.end + 2;
             bar.title = `Start day ${segment.start + 1}, end day ${segment.end + 1}`;
+            bar.style.background = staffToColor(segment.staff);
             if (segmentIndex === 0) {
               const labelSpan = document.createElement("span");
               labelSpan.className = "label";
@@ -793,9 +964,10 @@
           ganttBody.appendChild(row);
         }
 
-        updateKpis(sequenceStaff, dailyStaff, dailyActive);
+        updateKpis(normalSequence, slowSequence, dailyStaff, dailyActive);
         if (renderParallel) {
-          renderParallelGantt(sequenceStaff.length);
+          renderStaffGrid(normalParallelGantt, normalStaff, normalSequence.length);
+          renderStaffGrid(slowParallelGantt, slowStaff, slowSequence.length);
         }
       };
 
@@ -815,7 +987,8 @@
 
       const handleDragStart = (event, productIndex, timeline) => {
         event.preventDefault();
-        const sequenceStaff = getSequenceStaff();
+        const useSlow = productModes[productIndex];
+        const sequenceStaff = getSequenceStaff(useSlow ? "slow" : "normal");
         dragging = {
           productIndex,
           timeline,
@@ -856,18 +1029,21 @@
       const handleInputChange = () => {
         const productCount = Number.parseInt(productCountInput.value, 10) || 0;
         const planningMode = planningModeInput.value;
-        startDays = buildStartDays(productCount, planningMode, getCycleTime());
+        const maxLength = Math.max(getCycleTime("normal"), getCycleTime("slow"));
+        startDays = buildStartDays(productCount, planningMode, maxLength);
         renderGantt();
       };
 
-      const updateFteDeepDive = (sequenceStaff, dailyStaff, dailyActive, maxStaff, maxWip) => {
+      const updateFteDeepDive = (normalSequence, slowSequence, dailyStaff, dailyActive, maxStaff, maxWip) => {
         const productCount = Number.parseInt(productCountInput.value, 10) || 0;
         const planningMode = planningModeInput.value;
-        const cycleTime = getCycleTime();
+        const normalCycleTime = getCycleTime("normal");
+        const slowCycleTime = getCycleTime("slow");
         const fteFactor = Number.parseFloat(fteFactorInput.value) || 0;
-        const sequenceCalendarDays = getSequenceCalendarDays(sequenceStaff.length);
-        const latestStart = getLatestStartDay(sequenceStaff.length);
-        const tuckDays = getTuckDays(sequenceStaff.length);
+        const maxSequenceLength = Math.max(normalSequence.length, slowSequence.length);
+        const sequenceCalendarDays = getSequenceCalendarDays(maxSequenceLength);
+        const latestStart = getLatestStartDay(maxSequenceLength);
+        const tuckDays = getTuckDays(maxSequenceLength);
         const tuckWeeks = (tuckDays / 7).toFixed(1);
         const startWindowDays = latestStart + 1;
         const startWindowWeeks = (startWindowDays / 7).toFixed(1);
@@ -882,9 +1058,12 @@
           lightHockey: "Light hockey stick",
           mildHockey: "Mild hockey stick",
         };
-        const combinedStaff = sequenceStaff.length ? sequenceStaff.join(", ") : "—";
-        const primaryStaff = parallelStaff.primary.length ? parallelStaff.primary.join(", ") : "—";
-        const secondaryStaff = parallelStaff.secondary.length ? parallelStaff.secondary.join(", ") : "—";
+        const normalCombined = normalSequence.length ? normalSequence.join(", ") : "—";
+        const slowCombined = slowSequence.length ? slowSequence.join(", ") : "—";
+        const normalPrimary = normalStaff.primary.length ? normalStaff.primary.join(", ") : "—";
+        const normalSecondary = normalStaff.secondary.length ? normalStaff.secondary.join(", ") : "—";
+        const slowPrimary = slowStaff.primary.length ? slowStaff.primary.join(", ") : "—";
+        const slowSecondary = slowStaff.secondary.length ? slowStaff.secondary.join(", ") : "—";
 
         fteDeepDive.innerHTML = `
           <h3>FTE budget deep dive</h3>
@@ -896,11 +1075,14 @@
             <li><strong>Active products on peak day:</strong> ${peakActive}</li>
             <li><strong>Average staffing per active product on peak day:</strong> ${avgStaffPerActive}</li>
             <li><strong>Peak WIP capability:</strong> ${maxWip} sequences</li>
-            <li><strong>Total staffing sequence per day:</strong> [${combinedStaff}]</li>
-            <li><strong>Primary path staffing by day:</strong> [${primaryStaff}]</li>
-            <li><strong>Parallel path staffing by day:</strong> [${secondaryStaff}]</li>
-            <li><strong>Cycle time:</strong> ${cycleTime} weekdays (${sequenceCalendarDays} calendar days incl. weekends)</li>
-            <li><strong>Tuck time:</strong> ${tuckDays} days (${tuckWeeks} weeks) = 13 weeks − cycle time</li>
+            <li><strong>Normal staffing sequence per day:</strong> [${normalCombined}]</li>
+            <li><strong>Normal primary path staffing by day:</strong> [${normalPrimary}]</li>
+            <li><strong>Normal parallel path staffing by day:</strong> [${normalSecondary}]</li>
+            <li><strong>Slow staffing sequence per day:</strong> [${slowCombined}]</li>
+            <li><strong>Slow primary path staffing by day:</strong> [${slowPrimary}]</li>
+            <li><strong>Slow parallel path staffing by day:</strong> [${slowSecondary}]</li>
+            <li><strong>Cycle time:</strong> Normal ${normalCycleTime} weekdays · Slow ${slowCycleTime} weekdays (${sequenceCalendarDays} calendar days incl. weekends)</li>
+            <li><strong>Tuck time:</strong> ${tuckDays} days (${tuckWeeks} weeks) = 13 weeks − max cycle time</li>
             <li><strong>Start window used:</strong> first ${startWindowDays} days (${startWindowWeeks} weeks)</li>
             <li><strong>Planning distribution:</strong> ${planningLabels[planningMode] || planningMode}</li>
             <li><strong>Products required this quarter:</strong> ${productCount}</li>
@@ -914,12 +1096,21 @@
         renderGantt();
         productCountInput.addEventListener("change", handleInputChange);
         planningModeInput.addEventListener("change", handleInputChange);
-        cycleTimeInput.addEventListener("change", () => {
-          ensureParallelLength(getCycleTime());
+        normalCycleTimeInput.addEventListener("change", () => {
+          ensureStaffLength(normalStaff, getCycleTime("normal"));
           startDays = buildStartDays(
             Number.parseInt(productCountInput.value, 10) || 0,
             planningModeInput.value,
-            getCycleTime()
+            Math.max(getCycleTime("normal"), getCycleTime("slow"))
+          );
+          renderGantt();
+        });
+        slowCycleTimeInput.addEventListener("change", () => {
+          ensureStaffLength(slowStaff, getCycleTime("slow"));
+          startDays = buildStartDays(
+            Number.parseInt(productCountInput.value, 10) || 0,
+            planningModeInput.value,
+            Math.max(getCycleTime("normal"), getCycleTime("slow"))
           );
           renderGantt();
         });
