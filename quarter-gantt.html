@@ -637,7 +637,7 @@
         kpiCycle.textContent = `${sequenceStaff.length} weekdays`;
         kpiFte.textContent = `${(maxStaff * fteFactor).toFixed(1)} FTE`;
         kpiWip.textContent = `${maxWip} sequences`;
-        updateFteDeepDive(sequenceStaff, maxStaff, maxWip);
+        updateFteDeepDive(sequenceStaff, dailyStaff, dailyActive, maxStaff, maxWip);
       };
 
       const focusNextCell = (rowEl, index) => {
@@ -860,7 +860,7 @@
         renderGantt();
       };
 
-      const updateFteDeepDive = (sequenceStaff, maxStaff, maxWip) => {
+      const updateFteDeepDive = (sequenceStaff, dailyStaff, dailyActive, maxStaff, maxWip) => {
         const productCount = Number.parseInt(productCountInput.value, 10) || 0;
         const planningMode = planningModeInput.value;
         const cycleTime = getCycleTime();
@@ -871,6 +871,11 @@
         const tuckWeeks = (tuckDays / 7).toFixed(1);
         const startWindowDays = latestStart + 1;
         const startWindowWeeks = (startWindowDays / 7).toFixed(1);
+        const peakDayIndex = dailyStaff.indexOf(maxStaff);
+        const peakDayNumber = peakDayIndex >= 0 ? peakDayIndex + 1 : 1;
+        const peakDow = dayLabels[getDow(peakDayIndex >= 0 ? peakDayIndex : 0)];
+        const peakActive = dailyActive[peakDayIndex] || 0;
+        const avgStaffPerActive = peakActive ? (maxStaff / peakActive).toFixed(1) : "0.0";
         const planningLabels = {
           level: "Evenly distributed (level plan)",
           frontloaded: "Front-loaded (early push)",
@@ -884,19 +889,21 @@
         fteDeepDive.innerHTML = `
           <h3>FTE budget deep dive</h3>
           <ul>
-            <li><strong>Products required this quarter:</strong> ${productCount}</li>
-            <li><strong>Planning distribution:</strong> ${planningLabels[planningMode] || planningMode}</li>
+            <li><strong>FTE calculation:</strong> ${maxStaff} × ${fteFactor} = ${(maxStaff * fteFactor).toFixed(1)} FTE</li>
+            <li><strong>FTE formula:</strong> FTE = peak daily staffing × FTE factor</li>
+            <li><strong>Peak daily staffing across all active products:</strong> ${maxStaff}</li>
+            <li><strong>Peak staffing day:</strong> Day ${peakDayNumber} (${peakDow})</li>
+            <li><strong>Active products on peak day:</strong> ${peakActive}</li>
+            <li><strong>Average staffing per active product on peak day:</strong> ${avgStaffPerActive}</li>
+            <li><strong>Peak WIP capability:</strong> ${maxWip} sequences</li>
+            <li><strong>Total staffing sequence per day:</strong> [${combinedStaff}]</li>
+            <li><strong>Primary path staffing by day:</strong> [${primaryStaff}]</li>
+            <li><strong>Parallel path staffing by day:</strong> [${secondaryStaff}]</li>
             <li><strong>Cycle time:</strong> ${cycleTime} weekdays (${sequenceCalendarDays} calendar days incl. weekends)</li>
             <li><strong>Tuck time:</strong> ${tuckDays} days (${tuckWeeks} weeks) = 13 weeks − cycle time</li>
             <li><strong>Start window used:</strong> first ${startWindowDays} days (${startWindowWeeks} weeks)</li>
-            <li><strong>Primary path staffing by day:</strong> [${primaryStaff}]</li>
-            <li><strong>Parallel path staffing by day:</strong> [${secondaryStaff}]</li>
-            <li><strong>Total staffing sequence per day:</strong> [${combinedStaff}]</li>
-            <li><strong>Peak daily staffing across all active products:</strong> ${maxStaff}</li>
-            <li><strong>Peak WIP capability:</strong> ${maxWip} sequences</li>
-            <li><strong>FTE conversion factor:</strong> ${fteFactor}</li>
-            <li><strong>FTE formula:</strong> FTE = peak daily staffing × FTE factor</li>
-            <li><strong>FTE calculation:</strong> ${maxStaff} × ${fteFactor} = ${(maxStaff * fteFactor).toFixed(1)} FTE</li>
+            <li><strong>Planning distribution:</strong> ${planningLabels[planningMode] || planningMode}</li>
+            <li><strong>Products required this quarter:</strong> ${productCount}</li>
           </ul>
         `;
       };
