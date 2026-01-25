@@ -198,28 +198,34 @@
       border-left: none;
     }
     .gantt-row {
-      min-height: 26px;
-      padding: 2px 0;
+      min-height: 22px;
+      padding: 1px 0;
     }
     .row-label {
       font-weight: 600;
       color: #2f3b4a;
       display: flex;
-      flex-direction: column;
-      gap: 6px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .row-label span {
+      flex: 0 0 auto;
+      min-width: 36px;
     }
     .row-label select {
-      padding: 4px 6px;
+      padding: 2px 6px;
       border-radius: 6px;
       border: 1px solid var(--border);
       font-size: 12px;
+      max-width: 140px;
     }
     .timeline {
       display: grid;
       grid-template-columns: repeat(91, minmax(0, 1fr));
       position: relative;
       gap: 0;
-      min-height: 22px;
+      min-height: 20px;
     }
     .day-cell {
       border-right: 1px solid #f0f2f6;
@@ -232,7 +238,7 @@
     }
     .sequence-bar {
       grid-row: 1 / span 1;
-      height: 18px;
+      height: 16px;
       align-self: center;
       border-radius: 6px;
       background: linear-gradient(120deg, var(--bar), var(--bar-light));
@@ -435,7 +441,7 @@
       </div>
       <section class="gantt-wrapper">
         <div class="gantt-header">
-          <div>Product</div>
+        <div>#</div>
           <div class="week-row" id="weekHeader"></div>
         </div>
         <div id="ganttBody"></div>
@@ -838,7 +844,7 @@
           const label = document.createElement("div");
           label.className = "row-label";
           const labelTitle = document.createElement("span");
-          labelTitle.textContent = `Product ${i + 1}`;
+          labelTitle.textContent = `#${i + 1}`;
           const staffingSelect = document.createElement("select");
           staffingSelect.innerHTML = `
             <option value="normal">Normal staffing</option>
