@@ -460,6 +460,25 @@
         return day;
       };
 
+      const adjustToWeekdayBounded = (dayIndex, maxDay) => {
+        let day = dayIndex;
+        let guard = 0;
+        while (isWeekend(day) && guard < rangeDays) {
+          day = (day + 1) % rangeDays;
+          guard += 1;
+        }
+        if (day <= maxDay) {
+          return day;
+        }
+        day = dayIndex;
+        guard = 0;
+        while (isWeekend(day) && guard < rangeDays) {
+          day = (day - 1 + rangeDays) % rangeDays;
+          guard += 1;
+        }
+        return Math.min(day, maxDay);
+      };
+
       const getCycleTime = () => Math.max(1, Number.parseInt(cycleTimeInput.value, 10) || 1);
 
       const ensureParallelLength = (length) => {
@@ -508,6 +527,8 @@
         return adjustToWeekday(day);
       };
 
+      const getLatestStartDay = (sequenceLength) => startDayForEnd(lastWorkingDay(), sequenceLength);
+
       const buildWorkDays = (startDay, sequenceLength) => {
         const workDays = [];
         let day = startDay;
@@ -542,8 +563,8 @@
         if (count <= 0) {
           return startPoints;
         }
-        const sequenceCalendarDays = getSequenceCalendarDays(sequenceLength);
-        const startWindowEnd = Math.min(Math.max(sequenceCalendarDays - 1, 0), lastWorkingDay());
+        const latestStart = getLatestStartDay(sequenceLength);
+        const startWindowEnd = Math.max(latestStart, 0);
         const exponentMap = {
           level: 1,
           lightHockey: 0.82,
@@ -552,13 +573,12 @@
         };
         const exponent = exponentMap[mode] || 1;
         const maxIndex = Math.max(count - 1, 1);
-        const latestStart = Math.min(startDayForEnd(lastWorkingDay(), sequenceLength), startWindowEnd);
         for (let i = 0; i < count; i += 1) {
           const ratio = i / maxIndex;
           const eased = Math.pow(ratio, exponent);
           const rawDay = Math.floor(eased * startWindowEnd);
           const bounded = Math.min(rawDay, latestStart);
-          startPoints.push(adjustToWeekday(bounded));
+          startPoints.push(adjustToWeekdayBounded(bounded, latestStart));
         }
         const finalIndex = count - 1;
         const endDay = lastWorkingDay();
@@ -824,9 +844,11 @@
         const cycleTime = getCycleTime();
         const fteFactor = Number.parseFloat(fteFactorInput.value) || 0;
         const sequenceCalendarDays = getSequenceCalendarDays(sequenceStaff.length);
+        const latestStart = getLatestStartDay(sequenceStaff.length);
         const tuckDays = getTuckDays(sequenceStaff.length);
         const tuckWeeks = (tuckDays / 7).toFixed(1);
-        const startWindowWeeks = (sequenceCalendarDays / 7).toFixed(1);
+        const startWindowDays = latestStart + 1;
+        const startWindowWeeks = (startWindowDays / 7).toFixed(1);
         const planningLabels = {
           level: "Evenly distributed (level plan)",
           frontloaded: "Front-loaded (early push)",
@@ -844,7 +866,7 @@
             <li><strong>Planning distribution:</strong> ${planningLabels[planningMode] || planningMode}</li>
             <li><strong>Cycle time:</strong> ${cycleTime} weekdays (${sequenceCalendarDays} calendar days incl. weekends)</li>
             <li><strong>Tuck time:</strong> ${tuckDays} days (${tuckWeeks} weeks) = 13 weeks − cycle time</li>
-            <li><strong>Start window used:</strong> first ${sequenceCalendarDays} days (${startWindowWeeks} weeks)</li>
+            <li><strong>Start window used:</strong> first ${startWindowDays} days (${startWindowWeeks} weeks)</li>
             <li><strong>Primary path staffing by day:</strong> [${primaryStaff}]</li>
             <li><strong>Parallel path staffing by day:</strong> [${secondaryStaff}]</li>
             <li><strong>Total staffing sequence per day:</strong> [${combinedStaff}]</li>
