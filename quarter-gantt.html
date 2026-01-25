@@ -424,7 +424,16 @@
     (() => {
       const rangeDays = 91;
       const weeks = 13;
-      const dayMs = 86400000;
+
+      /**
+       * IMPORTANT FIX:
+       * Anchor the quarter to a known weekday so weekend detection is stable.
+       * 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+       *
+       * If your Day 1 is a Monday (typical business quarter planning), keep this at 1.
+       */
+      const quarterStartDow = 1; // Monday
+
       const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       const defaultParallelPrimary = [4, 4, 4, 3, 3, 2, 2, 2, 1, 1];
 
@@ -445,9 +454,12 @@
       let parallelStaff = { primary: [], secondary: [] };
       let dragging = null;
 
+      const getDow = (dayIndex) => (quarterStartDow + dayIndex) % 7;
+
       const isWeekend = (dayIndex) => {
-        const dayOfWeek = dayIndex % 7;
-        return dayOfWeek === 0 || dayOfWeek === 6;
+        const dow = getDow(dayIndex);
+        // weekend = Saturday(6) or Sunday(0)
+        return dow === 0 || dow === 6;
       };
 
       const adjustToWeekday = (dayIndex) => {
@@ -735,7 +747,8 @@
           for (let d = 0; d < rangeDays; d += 1) {
             const cell = document.createElement("div");
             cell.className = `day-cell${isWeekend(d) ? " weekend" : ""}`;
-            cell.title = `${dayLabels[d % 7]} · Day ${d + 1}`;
+            const dow = getDow(d);
+            cell.title = `${dayLabels[dow]} · Day ${d + 1}`;
             timeline.appendChild(cell);
           }
 
