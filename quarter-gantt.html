@@ -165,6 +165,7 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
+      overflow-x: auto;
     }
     .gantt-header,
     .gantt-row {
@@ -348,6 +349,56 @@
       color: #97a1ad;
       margin-top: 4px;
     }
+    @media (max-width: 900px) {
+      body {
+        padding: 16px;
+      }
+      .container {
+        gap: 12px;
+      }
+      .input-pane {
+        grid-template-columns: 1fr;
+      }
+      .legend {
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .gantt-header,
+      .gantt-row {
+        grid-template-columns: 140px 1fr;
+        min-width: 720px;
+      }
+      .row-label {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .row-label select {
+        max-width: 100%;
+      }
+      .gantt-tools {
+        justify-content: flex-start;
+      }
+      .gantt-tools .field {
+        width: 100%;
+        max-width: none;
+      }
+    }
+    @media (max-width: 600px) {
+      body {
+        padding: 12px;
+      }
+      header h1 {
+        font-size: 20px;
+      }
+      .kpi span {
+        font-size: 18px;
+      }
+      .gantt-header,
+      .gantt-row {
+        grid-template-columns: 120px 1fr;
+        min-width: 680px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -362,7 +413,7 @@
       <section class="input-pane">
         <div class="field">
           <label for="productCount">Products required this quarter</label>
-          <input id="productCount" type="number" min="1" value="12" />
+          <input id="productCount" type="number" min="1" value="21" />
         </div>
         <div class="field">
           <label for="cycleTimeNormal">Cycle time (normal weekdays)</label>
@@ -371,13 +422,13 @@
         </div>
         <div class="field">
           <label for="cycleTimeSlow">Cycle time (slow weekdays)</label>
-          <input id="cycleTimeSlow" type="number" min="1" value="12" />
+          <input id="cycleTimeSlow" type="number" min="1" value="15" />
           <small>Defines how many weekday columns the slow staffing grid shows.</small>
         </div>
         <div class="field">
           <label for="fteFactor">FTE conversion (per person)</label>
-          <input id="fteFactor" type="number" min="0.1" step="0.1" value="0.2" />
-          <small>Example: 1 person × 0.2 = 0.2 FTE.</small>
+          <input id="fteFactor" type="number" min="0.1" step="0.01" value="3.66" />
+          <small>Example: 1 person × 3.66 = 3.66 FTE.</small>
         </div>
       </section>
     </details>
@@ -473,8 +524,8 @@
       const quarterStartDow = 1; // Monday
 
       const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-      const defaultParallelPrimary = [4, 4, 4, 3, 3, 2, 2, 2, 1, 1];
-      const defaultParallelSlow = defaultParallelPrimary.map((value) => Math.max(value - 1, 0));
+      const defaultPrimaryStaffing = 6;
+      const defaultSecondaryStaffing = 2;
 
       const byId = (id) => document.getElementById(id);
       const productCountInput = byId("productCount");
@@ -752,26 +803,20 @@
       const initializeParallelStaff = () => {
         const normalLength = getCycleTime("normal");
         const slowLength = getCycleTime("slow");
+        const buildDefaults = (length) =>
+          Array.from({ length }, () => defaultPrimaryStaffing);
+        const buildSecondaryDefaults = (length) =>
+          Array.from({ length }, () => defaultSecondaryStaffing);
         parallelStaff = {
           normal: {
-            primary: defaultParallelPrimary.slice(0, normalLength),
-            secondary: Array.from({ length: normalLength }, () => 0),
+            primary: buildDefaults(normalLength),
+            secondary: buildSecondaryDefaults(normalLength),
           },
           slow: {
-            primary: defaultParallelSlow.slice(0, slowLength),
-            secondary: Array.from({ length: slowLength }, () => 0),
+            primary: buildDefaults(slowLength),
+            secondary: buildSecondaryDefaults(slowLength),
           },
         };
-        if (parallelStaff.normal.primary.length < normalLength) {
-          parallelStaff.normal.primary = parallelStaff.normal.primary.concat(
-            Array.from({ length: normalLength - parallelStaff.normal.primary.length }, () => 0)
-          );
-        }
-        if (parallelStaff.slow.primary.length < slowLength) {
-          parallelStaff.slow.primary = parallelStaff.slow.primary.concat(
-            Array.from({ length: slowLength - parallelStaff.slow.primary.length }, () => 0)
-          );
-        }
       };
 
       const renderWeekHeader = () => {
@@ -873,7 +918,13 @@
           const staffingType = productStaffingType[i] || "normal";
           const sequenceStaff =
             staffingType === "slow" ? sequenceStaffSlow : sequenceStaffNormal;
-          const startDay = adjustToWeekday(startDays[i] ?? 0);
+          const latestStart = getLatestStartDay(sequenceStaff.length);
+          const lastIndex = productCount - 1;
+          const plannedStart =
+            i === lastIndex
+              ? startDayForEnd(lastWorkingDay(), sequenceStaff.length)
+              : startDays[i] ?? 0;
+          const startDay = adjustToWeekdayBounded(plannedStart, latestStart);
           startDays[i] = startDay;
           const workDays = buildWorkDays(startDay, sequenceStaff.length);
           workDays.forEach((day, idx) => {
@@ -972,7 +1023,13 @@
           return;
         }
         const dayIndex = getDayFromPointer(event, dragging.timeline);
-        const startDay = adjustToWeekday(dayIndex);
+        const latestStart = getLatestStartDay(dragging.sequenceLength);
+        const lastIndex = (Number.parseInt(productCountInput.value, 10) || 0) - 1;
+        const plannedStart =
+          dragging.productIndex === lastIndex
+            ? startDayForEnd(lastWorkingDay(), dragging.sequenceLength)
+            : dayIndex;
+        const startDay = adjustToWeekdayBounded(plannedStart, latestStart);
         startDays[dragging.productIndex] = startDay;
         dragging = null;
         renderGantt();
