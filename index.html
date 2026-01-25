@@ -483,6 +483,7 @@
             end: absoluteEnd,
             segments,
             isSlow,
+            staff,
           });
           days.forEach((d) => {
             activeProductsByDay[d] += 1;
@@ -510,6 +511,22 @@
       const renderGantt = async (chartId, runs, boostWeeks, rangeDays = 91) => {
         const baseDate = new Date(2024, 0, 1);
         const weekCount = Math.ceil(rangeDays / 7);
+        const staffValues = runs.map((run) => run.staff);
+        const minStaff = Math.min(...staffValues, 0);
+        const maxStaff = Math.max(...staffValues, 0);
+        const staffRange = Math.max(1, maxStaff - minStaff);
+        const startColor = { r: 46, g: 175, b: 93 };
+        const endColor = { r: 217, g: 72, b: 72 };
+        const staffToColor = (staff) => {
+          if (!Number.isFinite(staff)) {
+            return `rgb(${startColor.r}, ${startColor.g}, ${startColor.b})`;
+          }
+          const t = Math.min(1, Math.max(0, (staff - minStaff) / staffRange));
+          const r = Math.round(startColor.r + (endColor.r - startColor.r) * t);
+          const g = Math.round(startColor.g + (endColor.g - startColor.g) * t);
+          const b = Math.round(startColor.b + (endColor.b - startColor.b) * t);
+          return `rgb(${r}, ${g}, ${b})`;
+        };
         const data = [];
         runs.forEach((run) => {
           run.segments.forEach((segment) => {
@@ -524,10 +541,10 @@
               x: [duration],
               base: [startDate],
               marker: {
-                color: run.isSlow ? "#d97a00" : "#3a7bd5",
+                color: staffToColor(run.staff),
                 line: { color: "#fff", width: 2 },
               },
-              hovertemplate: `${run.name}<br>Start: W${startWeek}<br>End: W${endWeek}<extra></extra>`,
+              hovertemplate: `${run.name}<br>Start: W${startWeek}<br>End: W${endWeek}<br>Staffing: ${run.staff}<extra></extra>`,
               name: run.name,
               customdata: [run.index],
               showlegend: false,
