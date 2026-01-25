@@ -173,6 +173,13 @@
       align-items: center;
       gap: 12px;
     }
+    .gantt-tools {
+      display: flex;
+      justify-content: flex-end;
+    }
+    .gantt-tools .field {
+      max-width: 320px;
+    }
     .gantt-header {
       font-size: 12px;
       color: var(--dark-blue);
@@ -191,8 +198,8 @@
       border-left: none;
     }
     .gantt-row {
-      min-height: 40px;
-      padding: 4px 0;
+      min-height: 26px;
+      padding: 2px 0;
     }
     .row-label {
       font-weight: 600;
@@ -203,7 +210,7 @@
       grid-template-columns: repeat(91, minmax(0, 1fr));
       position: relative;
       gap: 0;
-      min-height: 34px;
+      min-height: 22px;
     }
     .day-cell {
       border-right: 1px solid #f0f2f6;
@@ -216,7 +223,7 @@
     }
     .sequence-bar {
       grid-row: 1 / span 1;
-      height: 24px;
+      height: 18px;
       align-self: center;
       border-radius: 6px;
       background: linear-gradient(120deg, var(--bar), var(--bar-light));
@@ -227,7 +234,7 @@
       align-items: center;
       justify-content: center;
       color: #fff;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       z-index: 3;
     }
@@ -343,15 +350,6 @@
           <input id="productCount" type="number" min="1" value="12" />
         </div>
         <div class="field">
-          <label for="planningMode">Planning distribution</label>
-          <select id="planningMode">
-            <option value="level">Evenly distributed (level plan)</option>
-            <option value="frontloaded">Front-loaded (early push)</option>
-            <option value="lightHockey">Light hockey stick</option>
-            <option value="mildHockey">Mild hockey stick</option>
-          </select>
-        </div>
-        <div class="field">
           <label for="cycleTime">Cycle time (weekdays)</label>
           <input id="cycleTime" type="number" min="1" value="10" />
           <small>Defines how many weekday columns the parallel path grid shows.</small>
@@ -397,6 +395,17 @@
 
     <details class="section" open>
       <summary>Gantt chart</summary>
+      <div class="gantt-tools">
+        <div class="field">
+          <label for="planningMode">Planning distribution</label>
+          <select id="planningMode">
+            <option value="level">Evenly distributed (level plan)</option>
+            <option value="frontloaded">Front-loaded (early push)</option>
+            <option value="lightHockey">Light hockey stick</option>
+            <option value="mildHockey">Mild hockey stick</option>
+          </select>
+        </div>
+      </div>
       <div class="legend">
         <div class="chip"><span class="swatch"></span> Active sequence work</div>
         <div class="chip"><span class="swatch weekend"></span> Weekend (never scheduled)</div>
@@ -886,7 +895,8 @@
             <li><strong>Peak daily staffing across all active products:</strong> ${maxStaff}</li>
             <li><strong>Peak WIP capability:</strong> ${maxWip} sequences</li>
             <li><strong>FTE conversion factor:</strong> ${fteFactor}</li>
-            <li><strong>FTE budget needed:</strong> ${(maxStaff * fteFactor).toFixed(1)} FTE</li>
+            <li><strong>FTE formula:</strong> FTE = peak daily staffing × FTE factor</li>
+            <li><strong>FTE calculation:</strong> ${maxStaff} × ${fteFactor} = ${(maxStaff * fteFactor).toFixed(1)} FTE</li>
           </ul>
         `;
       };
