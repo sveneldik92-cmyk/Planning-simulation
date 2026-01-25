@@ -76,16 +76,26 @@
     }
     .product-mode-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
       gap: 8px;
       width: 100%;
     }
     .product-mode-item {
       display: flex;
-      align-items: center;
-      gap: 6px;
+      flex-direction: column;
+      gap: 4px;
       font-size: 13px;
       color: #3b4a5a;
+      background: #f4f6fb;
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid #e3e8f0;
+    }
+    .product-mode-item select {
+      font-size: 12px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      border: 1px solid #cdd5df;
     }
     .product-mode-hint {
       font-size: 12px;
@@ -213,13 +223,27 @@
       border-color: #d97a00;
       box-shadow: 0 0 0 1px rgba(217, 122, 0, 0.2);
     }
+    .staffing-legend {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: #3b4a5a;
+    }
+    .staffing-legend .swatch {
+      width: 120px;
+      height: 10px;
+      border-radius: 6px;
+      background: linear-gradient(90deg, #2eaf5d, #d94848);
+      border: 1px solid #d5dbe5;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="input-pane">
       <div class="field">
-        <label for="normalStaff">Normal staffing / product</label>
+        <label for="normalStaff">Normal staffing per day</label>
         <input id="normalStaff" type="number" min="1" value="8" />
       </div>
       <div class="field cycle-normal">
@@ -227,12 +251,12 @@
         <input id="normalCT" type="number" min="1" step="0.1" value="14.0" />
       </div>
       <div class="field">
-        <label for="slowStaff">Slow staffing / product</label>
+        <label for="slowStaff">Slow staffing per day</label>
         <input id="slowStaff" type="number" min="1" value="6" />
       </div>
       <div class="field cycle-slow">
         <label for="slowCT">Slow cycle-time (days)</label>
-        <input id="slowCT" type="number" min="1" step="0.1" value="18.0" readonly />
+        <input id="slowCT" type="number" min="1" step="0.1" value="18.0" />
       </div>
       <div class="field">
         <label for="fteFactor">Max staffing → FTE factor</label>
@@ -245,6 +269,11 @@
       <div class="field">
         <label for="maxParallelCap">Max systems in parallel (cap scenario)</label>
         <input id="maxParallelCap" type="number" min="1" value="4" />
+      </div>
+      <div class="field" style="grid-column: span 2;">
+        <label>Staffing type per product</label>
+        <div class="product-mode-grid" id="productModeGrid"></div>
+        <div class="product-mode-hint">Select <strong>Normal</strong> or <strong>Slow</strong> staffing for each product.</div>
       </div>
       <div class="actions" style="grid-column: span 2;">
         <button id="export" class="secondary">EXPORT → PPT</button>
@@ -290,6 +319,11 @@
           <button id="scaleIn">Scale in</button>
           <button id="scaleOut" class="secondary">Scale out</button>
         </div>
+        <div class="staffing-legend" id="legendLeveled">
+          <span>Staffing per day</span>
+          <span class="swatch"></span>
+          <span class="legend-range">-</span>
+        </div>
         <div id="ganttLeveled"></div>
         <div class="weekly-options">
           <h4>Weekly options</h4>
@@ -299,6 +333,11 @@
       <div class="gantt-panel">
         <h3>Scenario 2: Max parallel cap (backloaded)</h3>
         <div class="parallel-metrics" id="parallelMetricsCapped"></div>
+        <div class="staffing-legend" id="legendCapped">
+          <span>Staffing per day</span>
+          <span class="swatch"></span>
+          <span class="legend-range">-</span>
+        </div>
         <div id="ganttCapped"></div>
       </div>
     </div>
@@ -307,9 +346,8 @@
   <script>
     (() => {
       const byId = (id) => document.getElementById(id);
-      const inputIds = ["normalStaff", "normalCT", "slowStaff", "fteFactor", "quarterDemand", "maxParallelCap"];
+      const inputIds = ["normalStaff", "normalCT", "slowStaff", "slowCT", "fteFactor", "quarterDemand", "maxParallelCap"];
       const boostGrid = byId("boostGrid");
-      const slowCT = byId("slowCT");
       const kpi = byId("kpi");
       const figSlowCT = byId("figSlowCT");
       const figMaxStaff = byId("figMaxStaff");
@@ -318,6 +356,9 @@
       const figPeak = byId("figPeak");
       const parallelMetricsLeveled = byId("parallelMetricsLeveled");
       const parallelMetricsCapped = byId("parallelMetricsCapped");
+      const productModeGrid = byId("productModeGrid");
+      const legendLeveled = byId("legendLeveled");
+      const legendCapped = byId("legendCapped");
       let previousValues = {};
       let currentRangeDays = 91;
       const planningRangeDays = 91;
@@ -362,13 +403,13 @@
       };
 
       const validateInputs = (changedId) => {
-        const allowFloat = changedId === "normalCT" || changedId === "fteFactor";
+        const allowFloat = changedId === "normalCT" || changedId === "slowCT" || changedId === "fteFactor";
         const value = clampNumber(byId(changedId).value, allowFloat);
         if (!value) {
           byId(changedId).value = previousValues[changedId];
           return false;
         }
-        if (changedId === "normalCT") {
+        if (changedId === "normalCT" || changedId === "slowCT") {
           byId(changedId).value = value.toFixed(1);
         }
         if (changedId === "slowStaff" || changedId === "normalStaff") {
@@ -384,19 +425,46 @@
         return true;
       };
 
-      const buildProductModeList = (demand) => {
-        productModes = Array.from({ length: demand }, (_, i) => productModes[i] || false);
+      const renderProductModeControls = () => {
+        productModeGrid.innerHTML = "";
+        productModes.forEach((isSlow, index) => {
+          const wrapper = document.createElement("div");
+          wrapper.className = "product-mode-item";
+          const label = document.createElement("span");
+          label.textContent = `Product ${index + 1}`;
+          const select = document.createElement("select");
+          select.dataset.index = index;
+          const optionNormal = document.createElement("option");
+          optionNormal.value = "normal";
+          optionNormal.textContent = "Normal";
+          const optionSlow = document.createElement("option");
+          optionSlow.value = "slow";
+          optionSlow.textContent = "Slow";
+          select.appendChild(optionNormal);
+          select.appendChild(optionSlow);
+          select.value = isSlow ? "slow" : "normal";
+          select.addEventListener("change", (event) => {
+            const idx = parseInt(event.target.dataset.index, 10);
+            productModes[idx] = event.target.value === "slow";
+            recalculate();
+          });
+          wrapper.appendChild(label);
+          wrapper.appendChild(select);
+          productModeGrid.appendChild(wrapper);
+        });
       };
 
-      const updateSlowCT = () => {
-        const normalCTVal = clampNumber(byId("normalCT").value, true);
-        const normalStaffVal = clampNumber(byId("normalStaff").value);
-        const slowStaffVal = clampNumber(byId("slowStaff").value);
-        if (!normalCTVal || !normalStaffVal || !slowStaffVal) {
-          return;
-        }
-        const calculated = Math.max(1, (normalCTVal * normalStaffVal) / slowStaffVal);
-        slowCT.value = calculated.toFixed(1);
+      const buildProductModeList = (demand) => {
+        productModes = Array.from({ length: demand }, (_, i) => productModes[i] || false);
+        renderProductModeControls();
+      };
+
+      const syncProductModeControls = () => {
+        const selects = productModeGrid.querySelectorAll("select");
+        selects.forEach((select) => {
+          const idx = parseInt(select.dataset.index, 10);
+          select.value = productModes[idx] ? "slow" : "normal";
+        });
       };
 
       const getWorkDays = (startDay, cycleTime, boostWeeks, rangeDays) => {
@@ -503,7 +571,18 @@
           weeklyMaxStaff[w] = weekPeak;
         }
 
-        return { productRuns, activeProductsByDay, activeStaffByDay, weeklyMaxStaff, maxEnd };
+        const staffValues = productRuns.map((run) => run.staff);
+        const minStaff = staffValues.length ? Math.min(...staffValues) : 0;
+        const maxStaff = staffValues.length ? Math.max(...staffValues) : 0;
+        return {
+          productRuns,
+          activeProductsByDay,
+          activeStaffByDay,
+          weeklyMaxStaff,
+          maxEnd,
+          minStaff,
+          maxStaff,
+        };
       };
 
       const getWeekNumber = (dayIndex) => Math.floor(dayIndex / 7) + 1;
@@ -593,8 +672,19 @@
           const point = eventData.points[0];
           const idx = point.customdata;
           productModes[idx] = !productModes[idx];
+          syncProductModeControls();
           recalculate();
         });
+      };
+
+      const updateStaffingLegend = (targetEl, schedule) => {
+        if (!targetEl) {
+          return;
+        }
+        const range = targetEl.querySelector(".legend-range");
+        const minStaff = schedule.minStaff ?? 0;
+        const maxStaff = schedule.maxStaff ?? 0;
+        range.textContent = `${minStaff} → ${maxStaff} people`;
       };
 
       const updateFigures = (inputs, schedule) => {
@@ -664,12 +754,11 @@
 
       const recalculate = async () => {
         const inputs = {};
-        updateSlowCT();
         for (const id of inputIds) {
           if (!validateInputs(id)) {
             return;
           }
-          const allowFloat = id === "normalCT" || id === "fteFactor";
+          const allowFloat = id === "normalCT" || id === "slowCT" || id === "fteFactor";
           inputs[id] = clampNumber(byId(id).value, allowFloat);
         }
         const boostWeeks = getBoostWeeks();
@@ -678,7 +767,7 @@
         inputs.normalCT = inputs.normalCT;
         inputs.normalStaff = inputs.normalStaff;
         inputs.boostWeeks = boostWeeks;
-        inputs.slowCT = clampNumber(slowCT.value, true);
+        inputs.slowCT = inputs.slowCT;
         inputs.slowStaff = inputs.slowStaff;
 
         const leveledStarts = buildLeveledStartOffsets(inputs.demand, planningRangeDays);
@@ -707,6 +796,8 @@
         updateKpi(cappedSchedule, inputs.demand);
         updateParallelMetrics(parallelMetricsLeveled, leveledSchedule, planningRangeDays);
         updateParallelMetrics(parallelMetricsCapped, cappedSchedule, planningRangeDays);
+        updateStaffingLegend(legendLeveled, leveledSchedule);
+        updateStaffingLegend(legendCapped, cappedSchedule);
         await renderGantt("ganttLeveled", leveledSchedule.productRuns, boostWeeks, currentRangeDays);
         await renderGantt("ganttCapped", cappedSchedule.productRuns, boostWeeks, currentRangeDays);
       };
@@ -720,10 +811,10 @@
 
         const slide2 = pptx.addSlide();
         const params = [
-          `Normal staffing / product: ${byId("normalStaff").value}`,
+          `Normal staffing per day: ${byId("normalStaff").value}`,
           `Normal cycle-time (days): ${byId("normalCT").value}`,
-          `Slow staffing / product: ${byId("slowStaff").value}`,
-          `Slow cycle-time (days): ${slowCT.value}`,
+          `Slow staffing per day: ${byId("slowStaff").value}`,
+          `Slow cycle-time (days): ${byId("slowCT").value}`,
           `Max staffing → FTE factor: ${byId("fteFactor").value}`,
           `Quarterly demand: ${byId("quarterDemand").value}`,
           `Max systems in parallel (cap scenario): ${byId("maxParallelCap").value}`,
@@ -754,7 +845,7 @@
         };
         inputIds.forEach((id) => {
           const el = byId(id);
-          const allowFloat = id === "normalCT" || id === "fteFactor";
+          const allowFloat = id === "normalCT" || id === "slowCT" || id === "fteFactor";
           previousValues[id] = clampNumber(el.value, allowFloat) || 1;
           el.addEventListener("change", () => {
             if (validateInputs(id)) {
