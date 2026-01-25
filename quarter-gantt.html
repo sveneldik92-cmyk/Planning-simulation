@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quarterly Manpower Planning Gantt</title>
+  <style>
+    :root {
+      --light-blue: #3a7bd5;
+      --dark-blue: #174c8f;
+      --bg: #f7f9fc;
+      --text: #4b5a6a;
+      --border: #d7dbe2;
+      --weekend: #f1f3f7;
+      --bar: #3a7bd5;
+      --bar-light: #6ea1e3;
+      --accent: #2eaf5d;
+    }
+    * {
+      box-sizing: border-box;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .container {
+      max-width: 1300px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    header {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    header h1 {
+      margin: 0;
+      color: var(--dark-blue);
+    }
+    header p {
+      margin: 0;
+      color: #7a8794;
+    }
+    .input-pane {
+      background: #fff;
+      padding: 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px 24px;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .field label {
+      font-weight: 600;
+      color: var(--dark-blue);
+    }
+    .field input,
+    .field select,
+    .field textarea {
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    .field textarea {
+      min-height: 70px;
+      resize: vertical;
+    }
+    .field small {
+      color: #7a8794;
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .kpi {
+      background: #fff;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .kpi strong {
+      color: var(--dark-blue);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .kpi span {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .kpi.empty span {
+      color: #b7c0cc;
+    }
+    .legend {
+      display: flex;
+      gap: 16px;
+      font-size: 13px;
+      color: #7a8794;
+    }
+    .legend .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .legend .swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      background: var(--bar);
+    }
+    .legend .swatch.weekend {
+      background: var(--weekend);
+      border: 1px solid #e3e7ee;
+    }
+    .gantt-wrapper {
+      background: #fff;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .gantt-header,
+    .gantt-row {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      align-items: center;
+      gap: 12px;
+    }
+    .gantt-header {
+      font-size: 12px;
+      color: var(--dark-blue);
+      font-weight: 600;
+    }
+    .week-row {
+      display: grid;
+      grid-template-columns: repeat(13, minmax(0, 1fr));
+      gap: 0;
+    }
+    .week-cell {
+      text-align: center;
+      border-left: 1px solid #eef1f6;
+    }
+    .week-cell:first-child {
+      border-left: none;
+    }
+    .gantt-row {
+      min-height: 40px;
+      padding: 4px 0;
+    }
+    .row-label {
+      font-weight: 600;
+      color: #2f3b4a;
+    }
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(91, minmax(0, 1fr));
+      position: relative;
+      gap: 0;
+      min-height: 34px;
+    }
+    .day-cell {
+      border-right: 1px solid #f0f2f6;
+      border-bottom: 1px solid #f5f6fa;
+      background: #fff;
+    }
+    .day-cell.weekend {
+      background: var(--weekend);
+    }
+    .sequence-bar {
+      grid-row: 1 / span 1;
+      height: 24px;
+      align-self: center;
+      border-radius: 6px;
+      background: linear-gradient(120deg, var(--bar), var(--bar-light));
+      box-shadow: 0 2px 6px rgba(58, 123, 213, 0.2);
+      cursor: grab;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      z-index: 3;
+    }
+    .sequence-bar.preview {
+      background: rgba(58, 123, 213, 0.4);
+      box-shadow: none;
+      cursor: grabbing;
+    }
+    .sequence-bar .label {
+      padding: 0 6px;
+      pointer-events: none;
+    }
+    .timeline-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .instructions {
+      font-size: 13px;
+      color: #7a8794;
+    }
+    .footer-note {
+      font-size: 12px;
+      color: #97a1ad;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Quarterly Manpower Planning</h1>
+      <p>Design daily staffing sequences, choose a planning strategy, and drag sequences across the quarter.</p>
+    </header>
+
+    <section class="input-pane">
+      <div class="field">
+        <label for="productCount">Products required this quarter</label>
+        <input id="productCount" type="number" min="1" value="12" />
+      </div>
+      <div class="field">
+        <label for="planningMode">Planning distribution</label>
+        <select id="planningMode">
+          <option value="level">Evenly distributed (level plan)</option>
+          <option value="backloaded">Fully back-loaded</option>
+          <option value="lightHockey">Light hockey stick</option>
+          <option value="mildHockey">Mild hockey stick</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="sequenceInput">Sequence staffing per day</label>
+        <textarea id="sequenceInput">4,4,4,3,3,2,2,2,1,1</textarea>
+        <small>Comma-separated daily headcount (weekdays only). Length defines cycle time.</small>
+      </div>
+      <div class="field">
+        <label for="fteFactor">FTE conversion (per person)</label>
+        <input id="fteFactor" type="number" min="0.1" step="0.1" value="0.2" />
+        <small>Example: 1 person × 0.2 = 0.2 FTE.</small>
+      </div>
+    </section>
+
+    <section class="kpi-grid">
+      <div class="kpi">
+        <strong>Sequence cycle time</strong>
+        <span id="kpiCycle">-</span>
+      </div>
+      <div class="kpi">
+        <strong>FTE budget needed</strong>
+        <span id="kpiFte">-</span>
+      </div>
+      <div class="kpi">
+        <strong>Maximum WIP capability</strong>
+        <span id="kpiWip">-</span>
+      </div>
+      <div class="kpi empty">
+        <strong>Open slot</strong>
+        <span>—</span>
+      </div>
+    </section>
+
+    <div class="legend">
+      <div class="chip"><span class="swatch"></span> Active sequence work</div>
+      <div class="chip"><span class="swatch weekend"></span> Weekend (never scheduled)</div>
+    </div>
+
+    <section class="gantt-wrapper">
+      <div class="gantt-header">
+        <div>Product</div>
+        <div class="week-row" id="weekHeader"></div>
+      </div>
+      <div id="ganttBody"></div>
+      <div class="instructions">Drag a sequence bar to reschedule its start day. Weekend columns remain unavailable and wrap around to the new quarter start if needed.</div>
+      <div class="footer-note">Quarter view: 13 weeks / 91 days.</div>
+    </section>
+  </div>
+
+  <script>
+    (() => {
+      const rangeDays = 91;
+      const weeks = 13;
+      const dayMs = 86400000;
+      const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+      const byId = (id) => document.getElementById(id);
+      const productCountInput = byId("productCount");
+      const planningModeInput = byId("planningMode");
+      const sequenceInput = byId("sequenceInput");
+      const fteFactorInput = byId("fteFactor");
+      const ganttBody = byId("ganttBody");
+      const weekHeader = byId("weekHeader");
+      const kpiCycle = byId("kpiCycle");
+      const kpiFte = byId("kpiFte");
+      const kpiWip = byId("kpiWip");
+
+      let startDays = [];
+      let dragging = null;
+
+      const isWeekend = (dayIndex) => {
+        const dayOfWeek = dayIndex % 7;
+        return dayOfWeek === 5 || dayOfWeek === 6;
+      };
+
+      const adjustToWeekday = (dayIndex) => {
+        let day = dayIndex;
+        let guard = 0;
+        while (isWeekend(day) && guard < rangeDays) {
+          day = (day + 1) % rangeDays;
+          guard += 1;
+        }
+        return day;
+      };
+
+      const parseSequence = () => {
+        const values = sequenceInput.value
+          .split(/,|\n/)
+          .map((val) => parseInt(val.trim(), 10))
+          .filter((val) => Number.isFinite(val) && val > 0);
+        return values.length ? values : [1];
+      };
+
+      const buildStartDays = (count, mode) => {
+        const startPoints = [];
+        if (count <= 0) {
+          return startPoints;
+        }
+        const exponentMap = {
+          level: 1,
+          lightHockey: 1.4,
+          mildHockey: 1.9,
+          backloaded: 2.6,
+        };
+        const exponent = exponentMap[mode] || 1;
+        const maxIndex = Math.max(count - 1, 1);
+        for (let i = 0; i < count; i += 1) {
+          const ratio = i / maxIndex;
+          const eased = Math.pow(ratio, exponent);
+          const rawDay = Math.floor(eased * (rangeDays - 1));
+          startPoints.push(adjustToWeekday(rawDay));
+        }
+        return startPoints;
+      };
+
+      const buildWorkDays = (startDay, sequenceLength) => {
+        const workDays = [];
+        let day = startDay;
+        let idx = 0;
+        let guard = 0;
+        while (idx < sequenceLength && guard < rangeDays * 2) {
+          if (!isWeekend(day)) {
+            workDays.push(day);
+            idx += 1;
+          }
+          day = (day + 1) % rangeDays;
+          guard += 1;
+        }
+        return workDays;
+      };
+
+      const splitSegments = (workDays) => {
+        const segments = [];
+        if (!workDays.length) {
+          return segments;
+        }
+        let segmentStart = workDays[0];
+        let prev = workDays[0];
+        for (let i = 1; i < workDays.length; i += 1) {
+          const current = workDays[i];
+          const expected = (prev + 1) % rangeDays;
+          const wrapped = prev === rangeDays - 1 && current === 0;
+          if (current !== expected || wrapped) {
+            segments.push({ start: segmentStart, end: prev });
+            segmentStart = current;
+          }
+          prev = current;
+        }
+        segments.push({ start: segmentStart, end: prev });
+        return segments;
+      };
+
+      const updateKpis = (sequenceStaff, dailyStaff, dailyActive) => {
+        const maxStaff = Math.max(...dailyStaff, 0);
+        const maxWip = Math.max(...dailyActive, 0);
+        const fteFactor = Number.parseFloat(fteFactorInput.value) || 0;
+        kpiCycle.textContent = `${sequenceStaff.length} weekdays`;
+        kpiFte.textContent = `${(maxStaff * fteFactor).toFixed(1)} FTE`;
+        kpiWip.textContent = `${maxWip} sequences`;
+      };
+
+      const renderWeekHeader = () => {
+        weekHeader.innerHTML = "";
+        for (let w = 0; w < weeks; w += 1) {
+          const cell = document.createElement("div");
+          cell.className = "week-cell";
+          cell.textContent = `W${w + 1}`;
+          weekHeader.appendChild(cell);
+        }
+      };
+
+      const renderGantt = () => {
+        const productCount = Number.parseInt(productCountInput.value, 10) || 0;
+        const sequenceStaff = parseSequence();
+        const dailyStaff = Array.from({ length: rangeDays }, () => 0);
+        const dailyActive = Array.from({ length: rangeDays }, () => 0);
+
+        if (startDays.length !== productCount) {
+          startDays = buildStartDays(productCount, planningModeInput.value);
+        }
+
+        ganttBody.innerHTML = "";
+        for (let i = 0; i < productCount; i += 1) {
+          const row = document.createElement("div");
+          row.className = "gantt-row";
+          const label = document.createElement("div");
+          label.className = "row-label";
+          label.textContent = `Product ${i + 1}`;
+
+          const timeline = document.createElement("div");
+          timeline.className = "timeline";
+          timeline.dataset.productIndex = String(i);
+
+          for (let d = 0; d < rangeDays; d += 1) {
+            const cell = document.createElement("div");
+            cell.className = `day-cell${isWeekend(d) ? " weekend" : ""}`;
+            cell.title = `${dayLabels[d % 7]} · Day ${d + 1}`;
+            timeline.appendChild(cell);
+          }
+
+          const startDay = adjustToWeekday(startDays[i] ?? 0);
+          startDays[i] = startDay;
+          const workDays = buildWorkDays(startDay, sequenceStaff.length);
+          workDays.forEach((day, idx) => {
+            dailyActive[day] += 1;
+            dailyStaff[day] += sequenceStaff[idx] || 0;
+          });
+
+          const segments = splitSegments(workDays);
+          segments.forEach((segment, segmentIndex) => {
+            const bar = document.createElement("div");
+            bar.className = "sequence-bar";
+            bar.dataset.productIndex = String(i);
+            bar.dataset.segmentIndex = String(segmentIndex);
+            bar.style.gridColumnStart = segment.start + 1;
+            bar.style.gridColumnEnd = segment.end + 2;
+            bar.title = `Start day ${segment.start + 1}, end day ${segment.end + 1}`;
+            if (segmentIndex === 0) {
+              const labelSpan = document.createElement("span");
+              labelSpan.className = "label";
+              labelSpan.textContent = `P${i + 1}`;
+              bar.appendChild(labelSpan);
+            }
+            bar.addEventListener("pointerdown", (event) => handleDragStart(event, i, timeline));
+            timeline.appendChild(bar);
+          });
+
+          row.appendChild(label);
+          row.appendChild(timeline);
+          ganttBody.appendChild(row);
+        }
+
+        updateKpis(sequenceStaff, dailyStaff, dailyActive);
+      };
+
+      const buildPreviewBars = (timeline, startDay, sequenceLength) => {
+        const existing = timeline.querySelectorAll(".sequence-bar.preview");
+        existing.forEach((el) => el.remove());
+        const workDays = buildWorkDays(startDay, sequenceLength);
+        const segments = splitSegments(workDays);
+        segments.forEach((segment) => {
+          const bar = document.createElement("div");
+          bar.className = "sequence-bar preview";
+          bar.style.gridColumnStart = segment.start + 1;
+          bar.style.gridColumnEnd = segment.end + 2;
+          timeline.appendChild(bar);
+        });
+      };
+
+      const handleDragStart = (event, productIndex, timeline) => {
+        event.preventDefault();
+        const sequenceStaff = parseSequence();
+        dragging = {
+          productIndex,
+          timeline,
+          sequenceLength: sequenceStaff.length,
+        };
+        timeline.setPointerCapture(event.pointerId);
+        buildPreviewBars(timeline, startDays[productIndex], sequenceStaff.length);
+      };
+
+      const getDayFromPointer = (event, timeline) => {
+        const rect = timeline.getBoundingClientRect();
+        const offsetX = event.clientX - rect.left;
+        const dayWidth = rect.width / rangeDays;
+        const dayIndex = Math.min(rangeDays - 1, Math.max(0, Math.floor(offsetX / dayWidth)));
+        return dayIndex;
+      };
+
+      const handlePointerMove = (event) => {
+        if (!dragging) {
+          return;
+        }
+        const dayIndex = getDayFromPointer(event, dragging.timeline);
+        const startDay = adjustToWeekday(dayIndex);
+        buildPreviewBars(dragging.timeline, startDay, dragging.sequenceLength);
+      };
+
+      const handlePointerUp = (event) => {
+        if (!dragging) {
+          return;
+        }
+        const dayIndex = getDayFromPointer(event, dragging.timeline);
+        const startDay = adjustToWeekday(dayIndex);
+        startDays[dragging.productIndex] = startDay;
+        dragging = null;
+        renderGantt();
+      };
+
+      const handleInputChange = () => {
+        const productCount = Number.parseInt(productCountInput.value, 10) || 0;
+        const planningMode = planningModeInput.value;
+        startDays = buildStartDays(productCount, planningMode);
+        renderGantt();
+      };
+
+      document.addEventListener("DOMContentLoaded", () => {
+        renderWeekHeader();
+        renderGantt();
+        productCountInput.addEventListener("change", handleInputChange);
+        planningModeInput.addEventListener("change", handleInputChange);
+        sequenceInput.addEventListener("change", renderGantt);
+        fteFactorInput.addEventListener("change", renderGantt);
+        window.addEventListener("pointermove", handlePointerMove);
+        window.addEventListener("pointerup", handlePointerUp);
+      });
+    })();
+  </script>
+</body>
+</html>
