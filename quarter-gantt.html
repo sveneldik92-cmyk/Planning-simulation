@@ -180,6 +180,7 @@
       border-right: 1px solid #f0f2f6;
       border-bottom: 1px solid #f5f6fa;
       background: #fff;
+      grid-row: 1;
     }
     .day-cell.weekend {
       background: var(--weekend);
@@ -219,6 +220,63 @@
       font-size: 13px;
       color: #7a8794;
     }
+    .parallel-panel {
+      background: #fff;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-shadow: 0 10px 24px rgba(23, 76, 143, 0.08);
+    }
+    .parallel-panel h3 {
+      margin: 0;
+      color: var(--dark-blue);
+    }
+    .mini-gantt {
+      display: grid;
+      gap: 8px;
+      overflow-x: auto;
+    }
+    .mini-gantt-row {
+      display: grid;
+      grid-template-columns: 120px repeat(var(--mini-days, 10), minmax(36px, 1fr));
+      gap: 6px;
+      align-items: center;
+    }
+    .mini-gantt-header {
+      font-size: 12px;
+      color: #7a8794;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .mini-label {
+      font-weight: 600;
+      color: #2f3b4a;
+    }
+    .mini-cell {
+      background: #f5f8ff;
+      border-radius: 8px;
+      padding: 6px;
+      border: 1px solid #e2e8f4;
+      box-shadow: inset 0 1px 2px rgba(23, 76, 143, 0.08);
+    }
+    .mini-cell input {
+      width: 100%;
+      border: none;
+      background: transparent;
+      text-align: center;
+      font-weight: 600;
+      color: var(--dark-blue);
+    }
+    .mini-cell input:focus {
+      outline: none;
+    }
+    .mini-note {
+      font-size: 12px;
+      color: #7a8794;
+    }
     .footer-note {
       font-size: 12px;
       color: #97a1ad;
@@ -242,7 +300,7 @@
         <label for="planningMode">Planning distribution</label>
         <select id="planningMode">
           <option value="level">Evenly distributed (level plan)</option>
-          <option value="backloaded">Fully back-loaded</option>
+          <option value="frontloaded">Front-loaded (early push)</option>
           <option value="lightHockey">Light hockey stick</option>
           <option value="mildHockey">Mild hockey stick</option>
         </select>
@@ -283,6 +341,12 @@
       <div class="chip"><span class="swatch weekend"></span> Weekend (never scheduled)</div>
     </div>
 
+    <section class="parallel-panel">
+      <h3>Parallel path staffing per day</h3>
+      <div class="mini-gantt" id="parallelGantt"></div>
+      <div class="mini-note">Two parallel sequences let you split staffing needs per day while keeping the total in sync with the main sequence.</div>
+    </section>
+
     <section class="gantt-wrapper">
       <div class="gantt-header">
         <div>Product</div>
@@ -308,11 +372,13 @@
       const fteFactorInput = byId("fteFactor");
       const ganttBody = byId("ganttBody");
       const weekHeader = byId("weekHeader");
+      const parallelGantt = byId("parallelGantt");
       const kpiCycle = byId("kpiCycle");
       const kpiFte = byId("kpiFte");
       const kpiWip = byId("kpiWip");
 
       let startDays = [];
+      let parallelStaff = { primary: [], secondary: [] };
       let dragging = null;
 
       const isWeekend = (dayIndex) => {
@@ -338,6 +404,30 @@
         return values.length ? values : [1];
       };
 
+      const lastWorkingDay = () => {
+        let day = rangeDays - 1;
+        let guard = 0;
+        while (isWeekend(day) && guard < rangeDays) {
+          day = (day - 1 + rangeDays) % rangeDays;
+          guard += 1;
+        }
+        return day;
+      };
+
+      const startDayForEnd = (endDay, sequenceLength) => {
+        let day = endDay;
+        let remaining = Math.max(sequenceLength - 1, 0);
+        let guard = 0;
+        while (remaining > 0 && guard < rangeDays * 2) {
+          day = (day - 1 + rangeDays) % rangeDays;
+          if (!isWeekend(day)) {
+            remaining -= 1;
+          }
+          guard += 1;
+        }
+        return adjustToWeekday(day);
+      };
+
       const buildStartDays = (count, mode) => {
         const startPoints = [];
         if (count <= 0) {
@@ -347,7 +437,7 @@
           level: 1,
           lightHockey: 1.4,
           mildHockey: 1.9,
-          backloaded: 2.6,
+          frontloaded: 0.55,
         };
         const exponent = exponentMap[mode] || 1;
         const maxIndex = Math.max(count - 1, 1);
@@ -356,6 +446,11 @@
           const eased = Math.pow(ratio, exponent);
           const rawDay = Math.floor(eased * (rangeDays - 1));
           startPoints.push(adjustToWeekday(rawDay));
+        }
+        const finalIndex = count - 1;
+        const endDay = lastWorkingDay();
+        if (finalIndex >= 0) {
+          startPoints[finalIndex] = startDayForEnd(endDay, parseSequence().length);
         }
         return startPoints;
       };
@@ -404,6 +499,76 @@
         kpiCycle.textContent = `${sequenceStaff.length} weekdays`;
         kpiFte.textContent = `${(maxStaff * fteFactor).toFixed(1)} FTE`;
         kpiWip.textContent = `${maxWip} sequences`;
+      };
+
+      const renderParallelGantt = (sequenceStaff) => {
+        const length = sequenceStaff.length;
+        if (parallelStaff.primary.length !== length) {
+          parallelStaff = {
+            primary: [...sequenceStaff],
+            secondary: Array.from({ length }, () => 0),
+          };
+        }
+
+        parallelGantt.style.setProperty("--mini-days", String(length));
+        parallelGantt.innerHTML = "";
+
+        const header = document.createElement("div");
+        header.className = "mini-gantt-row mini-gantt-header";
+        const headerLabel = document.createElement("div");
+        headerLabel.textContent = "Day";
+        header.appendChild(headerLabel);
+        for (let i = 0; i < length; i += 1) {
+          const cell = document.createElement("div");
+          cell.textContent = `${i + 1}`;
+          header.appendChild(cell);
+        }
+        parallelGantt.appendChild(header);
+
+        const rows = [
+          { key: "primary", label: "Primary path" },
+          { key: "secondary", label: "Parallel path" },
+        ];
+
+        rows.forEach((row) => {
+          const rowEl = document.createElement("div");
+          rowEl.className = "mini-gantt-row";
+          const label = document.createElement("div");
+          label.className = "mini-label";
+          label.textContent = row.label;
+          rowEl.appendChild(label);
+
+          for (let i = 0; i < length; i += 1) {
+            const cell = document.createElement("div");
+            cell.className = "mini-cell";
+            const input = document.createElement("input");
+            input.type = "number";
+            input.min = "0";
+            input.value = String(parallelStaff[row.key][i] ?? 0);
+            input.addEventListener("input", () => {
+              parallelStaff[row.key][i] = Number.parseInt(input.value, 10) || 0;
+              syncSequenceFromParallel();
+            });
+            cell.appendChild(input);
+            rowEl.appendChild(cell);
+          }
+          parallelGantt.appendChild(rowEl);
+        });
+      };
+
+      const syncSequenceFromParallel = () => {
+        const total = parallelStaff.primary.map((value, index) => value + (parallelStaff.secondary[index] || 0));
+        sequenceInput.value = total.join(",");
+        renderGantt();
+      };
+
+      const syncParallelFromSequence = () => {
+        const sequenceStaff = parseSequence();
+        parallelStaff = {
+          primary: [...sequenceStaff],
+          secondary: Array.from({ length: sequenceStaff.length }, () => 0),
+        };
+        renderParallelGantt(sequenceStaff);
       };
 
       const renderWeekHeader = () => {
@@ -478,6 +643,7 @@
         }
 
         updateKpis(sequenceStaff, dailyStaff, dailyActive);
+        renderParallelGantt(sequenceStaff);
       };
 
       const buildPreviewBars = (timeline, startDay, sequenceLength) => {
@@ -543,10 +709,14 @@
 
       document.addEventListener("DOMContentLoaded", () => {
         renderWeekHeader();
+        syncParallelFromSequence();
         renderGantt();
         productCountInput.addEventListener("change", handleInputChange);
         planningModeInput.addEventListener("change", handleInputChange);
-        sequenceInput.addEventListener("change", renderGantt);
+        sequenceInput.addEventListener("change", () => {
+          syncParallelFromSequence();
+          renderGantt();
+        });
         fteFactorInput.addEventListener("change", renderGantt);
         window.addEventListener("pointermove", handlePointerMove);
         window.addEventListener("pointerup", handlePointerUp);
