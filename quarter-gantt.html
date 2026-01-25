@@ -234,6 +234,11 @@
       margin: 0;
       color: var(--dark-blue);
     }
+    .parallel-panel .note {
+      font-size: 12px;
+      color: #7a8794;
+      margin: 0;
+    }
     .mini-gantt {
       display: grid;
       gap: 8px;
@@ -277,6 +282,23 @@
       font-size: 12px;
       color: #7a8794;
     }
+    .fte-details {
+      background: #fff;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      padding: 16px;
+      font-size: 13px;
+      color: #5a6674;
+      line-height: 1.5;
+    }
+    .fte-details h3 {
+      margin: 0 0 8px;
+      color: var(--dark-blue);
+    }
+    .fte-details ul {
+      margin: 0;
+      padding-left: 18px;
+    }
     .footer-note {
       font-size: 12px;
       color: #97a1ad;
@@ -306,9 +328,9 @@
         </select>
       </div>
       <div class="field">
-        <label for="sequenceInput">Sequence staffing per day</label>
-        <textarea id="sequenceInput">4,4,4,3,3,2,2,2,1,1</textarea>
-        <small>Comma-separated daily headcount (weekdays only). Length defines cycle time.</small>
+        <label for="cycleTime">Cycle time (weekdays)</label>
+        <input id="cycleTime" type="number" min="1" value="10" />
+        <small>Defines how many weekday columns the parallel path grid shows.</small>
       </div>
       <div class="field">
         <label for="fteFactor">FTE conversion (per person)</label>
@@ -343,6 +365,7 @@
 
     <section class="parallel-panel">
       <h3>Parallel path staffing per day</h3>
+      <p class="note">Type a value and your cursor advances to the next cell automatically.</p>
       <div class="mini-gantt" id="parallelGantt"></div>
       <div class="mini-note">Two parallel sequences let you split staffing needs per day while keeping the total in sync with the main sequence.</div>
     </section>
@@ -356,6 +379,15 @@
       <div class="instructions">Drag a sequence bar to reschedule its start day. Weekend columns remain unavailable and wrap around to the new quarter start if needed.</div>
       <div class="footer-note">Quarter view: 13 weeks / 91 days.</div>
     </section>
+
+    <section class="fte-details">
+      <h3>FTE budget deep dive</h3>
+      <ul>
+        <li>We total the primary + parallel path staffing to build a single daily staffing sequence.</li>
+        <li>For each day in the quarter, we sum staffing across all active products and take the maximum daily peak.</li>
+        <li>The FTE budget is the peak daily staffing × the FTE conversion factor you set above.</li>
+      </ul>
+    </section>
   </div>
 
   <script>
@@ -363,12 +395,13 @@
       const rangeDays = 91;
       const weeks = 13;
       const dayMs = 86400000;
-      const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const defaultParallelPrimary = [4, 4, 4, 3, 3, 2, 2, 2, 1, 1];
 
       const byId = (id) => document.getElementById(id);
       const productCountInput = byId("productCount");
       const planningModeInput = byId("planningMode");
-      const sequenceInput = byId("sequenceInput");
+      const cycleTimeInput = byId("cycleTime");
       const fteFactorInput = byId("fteFactor");
       const ganttBody = byId("ganttBody");
       const weekHeader = byId("weekHeader");
@@ -383,7 +416,7 @@
 
       const isWeekend = (dayIndex) => {
         const dayOfWeek = dayIndex % 7;
-        return dayOfWeek === 5 || dayOfWeek === 6;
+        return dayOfWeek === 0 || dayOfWeek === 6;
       };
 
       const adjustToWeekday = (dayIndex) => {
@@ -396,12 +429,28 @@
         return day;
       };
 
-      const parseSequence = () => {
-        const values = sequenceInput.value
-          .split(/,|\n/)
-          .map((val) => parseInt(val.trim(), 10))
-          .filter((val) => Number.isFinite(val) && val > 0);
-        return values.length ? values : [1];
+      const getCycleTime = () => Math.max(1, Number.parseInt(cycleTimeInput.value, 10) || 1);
+
+      const ensureParallelLength = (length) => {
+        const current = parallelStaff.primary.length;
+        if (current === length) {
+          return;
+        }
+        if (current > length) {
+          parallelStaff.primary = parallelStaff.primary.slice(0, length);
+          parallelStaff.secondary = parallelStaff.secondary.slice(0, length);
+          return;
+        }
+        const primaryFill = Array.from({ length: length - current }, () => 0);
+        const secondaryFill = Array.from({ length: length - current }, () => 0);
+        parallelStaff.primary = parallelStaff.primary.concat(primaryFill);
+        parallelStaff.secondary = parallelStaff.secondary.concat(secondaryFill);
+      };
+
+      const getSequenceStaff = () => {
+        const length = getCycleTime();
+        ensureParallelLength(length);
+        return parallelStaff.primary.map((value, index) => value + (parallelStaff.secondary[index] || 0));
       };
 
       const lastWorkingDay = () => {
@@ -428,29 +477,31 @@
         return adjustToWeekday(day);
       };
 
-      const buildStartDays = (count, mode) => {
+      const buildStartDays = (count, mode, sequenceLength) => {
         const startPoints = [];
         if (count <= 0) {
           return startPoints;
         }
         const exponentMap = {
           level: 1,
-          lightHockey: 1.4,
-          mildHockey: 1.9,
+          lightHockey: 0.82,
+          mildHockey: 0.68,
           frontloaded: 0.55,
         };
         const exponent = exponentMap[mode] || 1;
         const maxIndex = Math.max(count - 1, 1);
+        const latestStart = startDayForEnd(lastWorkingDay(), sequenceLength);
         for (let i = 0; i < count; i += 1) {
           const ratio = i / maxIndex;
           const eased = Math.pow(ratio, exponent);
           const rawDay = Math.floor(eased * (rangeDays - 1));
-          startPoints.push(adjustToWeekday(rawDay));
+          const bounded = Math.min(rawDay, latestStart);
+          startPoints.push(adjustToWeekday(bounded));
         }
         const finalIndex = count - 1;
         const endDay = lastWorkingDay();
         if (finalIndex >= 0) {
-          startPoints[finalIndex] = startDayForEnd(endDay, parseSequence().length);
+          startPoints[finalIndex] = startDayForEnd(endDay, sequenceLength);
         }
         return startPoints;
       };
@@ -501,14 +552,17 @@
         kpiWip.textContent = `${maxWip} sequences`;
       };
 
-      const renderParallelGantt = (sequenceStaff) => {
-        const length = sequenceStaff.length;
-        if (parallelStaff.primary.length !== length) {
-          parallelStaff = {
-            primary: [...sequenceStaff],
-            secondary: Array.from({ length }, () => 0),
-          };
+      const focusNextCell = (rowEl, index) => {
+        const inputs = Array.from(rowEl.querySelectorAll("input"));
+        const next = inputs[index + 1];
+        if (next) {
+          next.focus();
+          next.select();
         }
+      };
+
+      const renderParallelGantt = (length) => {
+        ensureParallelLength(length);
 
         parallelGantt.style.setProperty("--mini-days", String(length));
         parallelGantt.innerHTML = "";
@@ -545,9 +599,19 @@
             input.type = "number";
             input.min = "0";
             input.value = String(parallelStaff[row.key][i] ?? 0);
-            input.addEventListener("input", () => {
+            input.addEventListener("input", (event) => {
               parallelStaff[row.key][i] = Number.parseInt(input.value, 10) || 0;
-              syncSequenceFromParallel();
+              renderGantt({ renderParallel: false });
+              const isDelete = event.inputType && event.inputType.startsWith("delete");
+              if (!isDelete && input.value !== "") {
+                focusNextCell(rowEl, i);
+              }
+            });
+            input.addEventListener("keydown", (event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                focusNextCell(rowEl, i);
+              }
             });
             cell.appendChild(input);
             rowEl.appendChild(cell);
@@ -556,19 +620,17 @@
         });
       };
 
-      const syncSequenceFromParallel = () => {
-        const total = parallelStaff.primary.map((value, index) => value + (parallelStaff.secondary[index] || 0));
-        sequenceInput.value = total.join(",");
-        renderGantt();
-      };
-
-      const syncParallelFromSequence = () => {
-        const sequenceStaff = parseSequence();
+      const initializeParallelStaff = () => {
+        const length = getCycleTime();
         parallelStaff = {
-          primary: [...sequenceStaff],
-          secondary: Array.from({ length: sequenceStaff.length }, () => 0),
+          primary: defaultParallelPrimary.slice(0, length),
+          secondary: Array.from({ length }, () => 0),
         };
-        renderParallelGantt(sequenceStaff);
+        if (parallelStaff.primary.length < length) {
+          parallelStaff.primary = parallelStaff.primary.concat(
+            Array.from({ length: length - parallelStaff.primary.length }, () => 0)
+          );
+        }
       };
 
       const renderWeekHeader = () => {
@@ -581,14 +643,14 @@
         }
       };
 
-      const renderGantt = () => {
+      const renderGantt = ({ renderParallel = true } = {}) => {
         const productCount = Number.parseInt(productCountInput.value, 10) || 0;
-        const sequenceStaff = parseSequence();
+        const sequenceStaff = getSequenceStaff();
         const dailyStaff = Array.from({ length: rangeDays }, () => 0);
         const dailyActive = Array.from({ length: rangeDays }, () => 0);
 
         if (startDays.length !== productCount) {
-          startDays = buildStartDays(productCount, planningModeInput.value);
+          startDays = buildStartDays(productCount, planningModeInput.value, sequenceStaff.length);
         }
 
         ganttBody.innerHTML = "";
@@ -643,7 +705,9 @@
         }
 
         updateKpis(sequenceStaff, dailyStaff, dailyActive);
-        renderParallelGantt(sequenceStaff);
+        if (renderParallel) {
+          renderParallelGantt(sequenceStaff.length);
+        }
       };
 
       const buildPreviewBars = (timeline, startDay, sequenceLength) => {
@@ -662,7 +726,7 @@
 
       const handleDragStart = (event, productIndex, timeline) => {
         event.preventDefault();
-        const sequenceStaff = parseSequence();
+        const sequenceStaff = getSequenceStaff();
         dragging = {
           productIndex,
           timeline,
@@ -703,18 +767,23 @@
       const handleInputChange = () => {
         const productCount = Number.parseInt(productCountInput.value, 10) || 0;
         const planningMode = planningModeInput.value;
-        startDays = buildStartDays(productCount, planningMode);
+        startDays = buildStartDays(productCount, planningMode, getCycleTime());
         renderGantt();
       };
 
       document.addEventListener("DOMContentLoaded", () => {
         renderWeekHeader();
-        syncParallelFromSequence();
+        initializeParallelStaff();
         renderGantt();
         productCountInput.addEventListener("change", handleInputChange);
         planningModeInput.addEventListener("change", handleInputChange);
-        sequenceInput.addEventListener("change", () => {
-          syncParallelFromSequence();
+        cycleTimeInput.addEventListener("change", () => {
+          ensureParallelLength(getCycleTime());
+          startDays = buildStartDays(
+            Number.parseInt(productCountInput.value, 10) || 0,
+            planningModeInput.value,
+            getCycleTime()
+          );
           renderGantt();
         });
         fteFactorInput.addEventListener("change", renderGantt);
