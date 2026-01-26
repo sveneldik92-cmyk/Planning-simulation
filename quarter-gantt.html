@@ -354,6 +354,11 @@
       color: #5a6674;
       line-height: 1.5;
     }
+    .fte-details .note {
+      margin: 0 0 8px;
+      color: #7a8794;
+      font-size: 12px;
+    }
     .fte-details h3 {
       margin: 0 0 8px;
       color: var(--dark-blue);
@@ -437,14 +442,14 @@
           <input id="productCount" type="number" min="1" value="21" />
         </div>
         <div class="field">
-          <label for="cycleTimeNormal">Cycle time (normal weekdays)</label>
+          <label for="cycleTimeNormal">Cycle time (normal workdays)</label>
           <input id="cycleTimeNormal" type="number" min="1" value="10" />
-          <small>Defines how many weekday columns the normal staffing grid shows.</small>
+          <small>Defines how many Mon–Sat workday columns the normal staffing grid shows.</small>
         </div>
         <div class="field">
-          <label for="cycleTimeSlow">Cycle time (slow weekdays)</label>
+          <label for="cycleTimeSlow">Cycle time (slow workdays)</label>
           <input id="cycleTimeSlow" type="number" min="1" value="15" />
-          <small>Defines how many weekday columns the slow staffing grid shows.</small>
+          <small>Defines how many Mon–Sat workday columns the slow staffing grid shows.</small>
         </div>
         <div class="field">
           <label for="fteFactor">FTE conversion (per person)</label>
@@ -507,9 +512,9 @@
           </select>
         </div>
       </div>
-      <div class="legend">
+        <div class="legend">
         <div class="chip"><span class="swatch"></span> Staffing intensity (light → dark)</div>
-        <div class="chip"><span class="swatch weekend"></span> Weekend (never scheduled)</div>
+        <div class="chip"><span class="swatch weekend"></span> Non-working day (Sunday only)</div>
       </div>
       <section class="gantt-wrapper">
         <div class="gantt-header">
@@ -517,7 +522,7 @@
           <div class="week-row" id="weekHeader"></div>
         </div>
         <div id="ganttBody"></div>
-        <div class="instructions">Drag a sequence bar to reschedule its start day. Weekend columns remain unavailable and wrap around to the new quarter start if needed.</div>
+        <div class="instructions">Drag a sequence bar to reschedule its start day. Sunday columns remain unavailable and wrap around to the new quarter start if needed.</div>
         <div class="footer-note">Quarter view: 13 weeks / 91 days.</div>
       </section>
     </details>
@@ -525,6 +530,7 @@
     <details class="section" open>
       <summary>FTE budget deep dive</summary>
       <section class="fte-details">
+        <p class="note">Budget is based on the peak daily staffing (highest combined staffing across all active products in the Gantt timeline).</p>
         <div id="fteDeepDive"></div>
       </section>
     </details>
@@ -575,8 +581,8 @@
 
       const isWeekend = (dayIndex) => {
         const dow = getDow(dayIndex);
-        // weekend = Saturday(6) or Sunday(0)
-        return dow === 0 || dow === 6;
+        // Non-working day = Sunday (0)
+        return dow === 0;
       };
 
       const adjustToWeekday = (dayIndex) => {
@@ -747,7 +753,7 @@
         const maxStaff = Math.max(...dailyStaff, 0);
         const maxWip = Math.max(...dailyActive, 0);
         const fteFactor = Number.parseFloat(fteFactorInput.value) || 0;
-        kpiCycle.textContent = `Normal: ${sequenceStaffNormal.length} weekdays · Slow: ${sequenceStaffSlow.length} weekdays`;
+        kpiCycle.textContent = `Normal: ${sequenceStaffNormal.length} workdays · Slow: ${sequenceStaffSlow.length} workdays`;
         kpiFte.textContent = `${(maxStaff * fteFactor).toFixed(1)} FTE`;
         kpiWip.textContent = `${maxWip} sequences`;
         updateFteDeepDive(sequenceStaffNormal, sequenceStaffSlow, dailyStaff, dailyActive, maxStaff, maxWip);
@@ -1125,8 +1131,8 @@
             <li><strong>Total staffing sequence per day (slow):</strong> [${combinedStaffSlow}]</li>
             <li><strong>Primary path staffing by day (slow):</strong> [${primaryStaffSlow}]</li>
             <li><strong>Parallel path staffing by day (slow):</strong> [${secondaryStaffSlow}]</li>
-            <li><strong>Cycle time (normal):</strong> ${cycleTimeNormal} weekdays (${sequenceCalendarDays} calendar days incl. weekends)</li>
-            <li><strong>Cycle time (slow):</strong> ${cycleTimeSlow} weekdays</li>
+            <li><strong>Cycle time (normal):</strong> ${cycleTimeNormal} workdays (${sequenceCalendarDays} calendar days incl. Sundays)</li>
+            <li><strong>Cycle time (slow):</strong> ${cycleTimeSlow} workdays</li>
             <li><strong>Tuck time:</strong> ${tuckDays} days (${tuckWeeks} weeks) = 13 weeks − cycle time</li>
             <li><strong>Start window used:</strong> first ${startWindowDays} days (${startWindowWeeks} weeks)</li>
             <li><strong>Planning distribution:</strong> ${planningLabels[planningMode] || planningMode}</li>
