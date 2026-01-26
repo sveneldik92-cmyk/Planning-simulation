@@ -698,6 +698,16 @@
 
       const getTuckDays = (sequenceLength) => Math.max(rangeDays - getSequenceCalendarDays(sequenceLength), 0);
 
+      const getWorkdayIndices = (maxDay) => {
+        const days = [];
+        for (let d = 0; d <= maxDay; d += 1) {
+          if (!isWeekend(d)) {
+            days.push(d);
+          }
+        }
+        return days.length ? days : [0];
+      };
+
       const buildStartDays = (count, mode, sequenceLength) => {
         const startPoints = [];
         if (count <= 0) {
@@ -705,6 +715,7 @@
         }
         const latestStart = getLatestStartDay(sequenceLength);
         const startWindowEnd = Math.max(latestStart, 0);
+        const workDays = getWorkdayIndices(startWindowEnd);
         const exponentMap = {
           level: 1,
           lightHockey: 0.82,
@@ -716,14 +727,9 @@
         for (let i = 0; i < count; i += 1) {
           const ratio = i / maxIndex;
           const eased = Math.pow(ratio, exponent);
-          const rawDay = Math.floor(eased * startWindowEnd);
-          const bounded = Math.min(rawDay, latestStart);
-          startPoints.push(adjustToWeekdayBounded(bounded, latestStart));
-        }
-        const finalIndex = count - 1;
-        const endDay = lastWorkingDay();
-        if (finalIndex >= 0) {
-          startPoints[finalIndex] = Math.min(startDayForEnd(endDay, sequenceLength), latestStart);
+          const workIndex = Math.floor(eased * (workDays.length - 1));
+          const boundedIndex = clamp(workIndex, 0, workDays.length - 1);
+          startPoints.push(workDays[boundedIndex]);
         }
         return startPoints;
       };
@@ -946,11 +952,7 @@
           const sequenceStaff =
             staffingType === "slow" ? sequenceStaffSlow : sequenceStaffNormal;
           const latestStart = getLatestStartDay(sequenceStaff.length);
-          const lastIndex = productCount - 1;
-          const plannedStart =
-            i === lastIndex
-              ? startDayForEnd(lastWorkingDay(), sequenceStaff.length)
-              : startDays[i] ?? 0;
+          const plannedStart = startDays[i] ?? 0;
           const startDay = adjustToWeekdayBounded(plannedStart, latestStart);
           startDays[i] = startDay;
           const workDays = buildWorkDays(startDay, sequenceStaff.length);
@@ -1051,12 +1053,7 @@
         }
         const dayIndex = getDayFromPointer(event, dragging.timeline);
         const latestStart = getLatestStartDay(dragging.sequenceLength);
-        const lastIndex = (Number.parseInt(productCountInput.value, 10) || 0) - 1;
-        const plannedStart =
-          dragging.productIndex === lastIndex
-            ? startDayForEnd(lastWorkingDay(), dragging.sequenceLength)
-            : dayIndex;
-        const startDay = adjustToWeekdayBounded(plannedStart, latestStart);
+        const startDay = adjustToWeekdayBounded(dayIndex, latestStart);
         startDays[dragging.productIndex] = startDay;
         dragging = null;
         renderGantt();
