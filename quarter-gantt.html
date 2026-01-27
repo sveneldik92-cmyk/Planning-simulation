@@ -713,9 +713,8 @@
         if (count <= 0) {
           return startPoints;
         }
-        const latestStart = getLatestStartDay(sequenceLength);
-        const startWindowEnd = Math.max(latestStart, 0);
-        const workDays = getWorkdayIndices(startWindowEnd);
+        const endWindowEnd = lastWorkingDay();
+        const endWorkDays = getWorkdayIndices(endWindowEnd);
         const exponentMap = {
           level: 1,
           lightHockey: 0.82,
@@ -727,9 +726,10 @@
         for (let i = 0; i < count; i += 1) {
           const ratio = i / maxIndex;
           const eased = Math.pow(ratio, exponent);
-          const workIndex = Math.floor(eased * (workDays.length - 1));
-          const boundedIndex = clamp(workIndex, 0, workDays.length - 1);
-          startPoints.push(workDays[boundedIndex]);
+          const workIndex = Math.floor(eased * (endWorkDays.length - 1));
+          const boundedIndex = clamp(workIndex, 0, endWorkDays.length - 1);
+          const endDay = endWorkDays[boundedIndex];
+          startPoints.push(startDayForEnd(endDay, sequenceLength));
         }
         return startPoints;
       };
