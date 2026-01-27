@@ -569,7 +569,8 @@
       const kpiWip = byId("kpiWip");
       const fteDeepDive = byId("fteDeepDive");
 
-      let startDays = [];
+      let currentStartDays = [];
+      let endDays = [];
       let productStaffingType = [];
       let parallelStaff = {
         normal: { primary: [], secondary: [] },
@@ -693,13 +694,13 @@
       const getWorkdayIndices = (maxDay) =>
         Array.from({ length: maxDay + 1 }, (_, index) => index);
 
-      const buildStartDays = (count, mode, sequenceLength) => {
-        const startPoints = [];
+      const buildEndDays = (count, mode) => {
+        const endPoints = [];
         if (count <= 0) {
-          return startPoints;
+          return endPoints;
         }
-        const startWindowEnd = getLatestStartDay(sequenceLength);
-        const startWorkDays = getWorkdayIndices(startWindowEnd);
+        const endWindowEnd = lastWorkingDay();
+        const endWorkDays = getWorkdayIndices(endWindowEnd);
         const exponentMap = {
           level: 1,
           lightHockey: 0.82,
@@ -711,11 +712,11 @@
         for (let i = 0; i < count; i += 1) {
           const ratio = i / maxIndex;
           const eased = Math.pow(ratio, exponent);
-          const workIndex = Math.round(eased * (startWorkDays.length - 1));
-          const boundedIndex = clamp(workIndex, 0, startWorkDays.length - 1);
-          startPoints.push(startWorkDays[boundedIndex]);
+          const workIndex = Math.round(eased * (endWorkDays.length - 1));
+          const boundedIndex = clamp(workIndex, 0, endWorkDays.length - 1);
+          endPoints.push(endWorkDays[boundedIndex]);
         }
-        return startPoints;
+        return endPoints;
       };
 
       const splitSegments = (workDays) => {
@@ -889,14 +890,15 @@
         const dailyActive = Array.from({ length: rangeDays }, () => 0);
         const maxStaffValue = getMaxStaffValue();
 
-        if (startDays.length !== productCount) {
-          startDays = buildStartDays(productCount, planningModeInput.value, sequenceStaffNormal.length);
+        if (endDays.length !== productCount) {
+          endDays = buildEndDays(productCount, planningModeInput.value);
         }
         if (productStaffingType.length !== productCount) {
           productStaffingType = Array.from({ length: productCount }, (_, index) =>
             productStaffingType[index] || "normal"
           );
         }
+        currentStartDays = Array.from({ length: productCount }, () => 0);
 
         ganttBody.innerHTML = "";
         for (let i = 0; i < productCount; i += 1) {
@@ -934,14 +936,14 @@
           const staffingType = productStaffingType[i] || "normal";
           const sequenceStaff =
             staffingType === "slow" ? sequenceStaffSlow : sequenceStaffNormal;
-          const plannedNormalStart = startDays[i] ?? 0;
-          const plannedEndDay = getEndDayForStart(plannedNormalStart, sequenceStaffNormal.length);
+          const plannedEndDay = endDays[i] ?? lastWorkingDay();
+          const plannedNormalStart = startDayForEnd(plannedEndDay, sequenceStaffNormal.length);
           const latestStart = getLatestStartDay(sequenceStaff.length);
           const startDay = adjustToWeekdayBounded(
             startDayForEnd(plannedEndDay, sequenceStaff.length),
             latestStart
           );
-          startDays[i] = adjustToWeekdayBounded(plannedNormalStart, getLatestStartDay(sequenceStaffNormal.length));
+          currentStartDays[i] = startDay;
           const workDays = buildWorkDays(startDay, sequenceStaff.length);
           workDays.forEach((day, idx) => {
             dailyActive[day] += 1;
@@ -1014,7 +1016,7 @@
           sequenceLength: sequenceStaff.length,
         };
         timeline.setPointerCapture(event.pointerId);
-        buildPreviewBars(timeline, startDays[productIndex], sequenceStaff.length);
+        buildPreviewBars(timeline, currentStartDays[productIndex], sequenceStaff.length);
       };
 
       const getDayFromPointer = (event, timeline) => {
@@ -1041,9 +1043,8 @@
         const dayIndex = getDayFromPointer(event, dragging.timeline);
         const latestStart = getLatestStartDay(dragging.sequenceLength);
         const startDay = adjustToWeekdayBounded(dayIndex, latestStart);
-        const normalLength = getSequenceStaff("normal").length;
         const endDay = getEndDayForStart(startDay, dragging.sequenceLength);
-        startDays[dragging.productIndex] = startDayForEnd(endDay, normalLength);
+        endDays[dragging.productIndex] = endDay;
         dragging = null;
         renderGantt();
       };
@@ -1051,7 +1052,7 @@
       const handleInputChange = () => {
         const productCount = Number.parseInt(productCountInput.value, 10) || 0;
         const planningMode = planningModeInput.value;
-        startDays = buildStartDays(productCount, planningMode, getCycleTime("normal"));
+        endDays = buildEndDays(productCount, planningMode);
         renderGantt();
       };
 
@@ -1134,19 +1135,17 @@
         planningModeInput.addEventListener("change", handleInputChange);
         cycleTimeNormalInput.addEventListener("change", () => {
           ensureParallelLength("normal", getCycleTime("normal"));
-          startDays = buildStartDays(
+          endDays = buildEndDays(
             Number.parseInt(productCountInput.value, 10) || 0,
-            planningModeInput.value,
-            getCycleTime("normal")
+            planningModeInput.value
           );
           renderGantt();
         });
         cycleTimeSlowInput.addEventListener("change", () => {
           ensureParallelLength("slow", getCycleTime("slow"));
-          startDays = buildStartDays(
+          endDays = buildEndDays(
             Number.parseInt(productCountInput.value, 10) || 0,
-            planningModeInput.value,
-            getCycleTime("normal")
+            planningModeInput.value
           );
           renderGantt();
         });
