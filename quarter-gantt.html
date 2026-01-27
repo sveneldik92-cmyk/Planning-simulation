@@ -442,14 +442,14 @@
           <input id="productCount" type="number" min="1" value="21" />
         </div>
         <div class="field">
-          <label for="cycleTimeNormal">Cycle time (normal workdays)</label>
+          <label for="cycleTimeNormal">Cycle time (normal days)</label>
           <input id="cycleTimeNormal" type="number" min="1" value="10" />
-          <small>Defines how many Mon–Sat workday columns the normal staffing grid shows.</small>
+          <small>Defines how many calendar days the normal staffing grid shows.</small>
         </div>
         <div class="field">
-          <label for="cycleTimeSlow">Cycle time (slow workdays)</label>
+          <label for="cycleTimeSlow">Cycle time (slow days)</label>
           <input id="cycleTimeSlow" type="number" min="1" value="15" />
-          <small>Defines how many Mon–Sat workday columns the slow staffing grid shows.</small>
+          <small>Defines how many calendar days the slow staffing grid shows.</small>
         </div>
         <div class="field">
           <label for="fteFactor">FTE conversion (per person)</label>
@@ -514,7 +514,7 @@
       </div>
         <div class="legend">
         <div class="chip"><span class="swatch"></span> Staffing intensity (light → dark)</div>
-        <div class="chip"><span class="swatch weekend"></span> Non-working day (Sunday only)</div>
+        <div class="chip"><span class="swatch weekend"></span> All days counted (7-day weeks)</div>
       </div>
       <section class="gantt-wrapper">
         <div class="gantt-header">
@@ -522,7 +522,7 @@
           <div class="week-row" id="weekHeader"></div>
         </div>
         <div id="ganttBody"></div>
-        <div class="instructions">Drag a sequence bar to reschedule its start day. Sunday columns remain unavailable and wrap around to the new quarter start if needed.</div>
+        <div class="instructions">Drag a sequence bar to reschedule its start day. All calendar days are available and wrap around to the new quarter start if needed.</div>
         <div class="footer-note">Quarter view: 13 weeks / 91 days.</div>
       </section>
     </details>
@@ -579,11 +579,7 @@
 
       const getDow = (dayIndex) => (quarterStartDow + dayIndex) % 7;
 
-      const isWeekend = (dayIndex) => {
-        const dow = getDow(dayIndex);
-        // Non-working day = Sunday (0)
-        return dow === 0;
-      };
+      const isWeekend = () => false;
 
       const adjustToWeekday = (dayIndex) => {
         let day = dayIndex;
@@ -669,44 +665,33 @@
 
       const getLatestStartDay = (sequenceLength) => startDayForEnd(lastWorkingDay(), sequenceLength);
 
+      const getEndDayForStart = (startDay, sequenceLength) => {
+        if (sequenceLength <= 0) {
+          return startDay;
+        }
+        return (startDay + sequenceLength - 1 + rangeDays * 2) % rangeDays;
+      };
+
       const buildWorkDays = (startDay, sequenceLength) => {
         const workDays = [];
         let day = startDay;
         let idx = 0;
         let guard = 0;
         while (idx < sequenceLength && guard < rangeDays * 2) {
-          if (!isWeekend(day)) {
-            workDays.push(day);
-            idx += 1;
-          }
+          workDays.push(day);
+          idx += 1;
           day = (day + 1) % rangeDays;
           guard += 1;
         }
         return workDays;
       };
 
-      const getSequenceCalendarDays = (sequenceLength) => {
-        if (sequenceLength <= 0) {
-          return 0;
-        }
-        const workDays = buildWorkDays(0, sequenceLength);
-        if (!workDays.length) {
-          return 0;
-        }
-        return workDays[workDays.length - 1] + 1;
-      };
+      const getSequenceCalendarDays = (sequenceLength) => Math.max(sequenceLength, 0);
 
       const getTuckDays = (sequenceLength) => Math.max(rangeDays - getSequenceCalendarDays(sequenceLength), 0);
 
-      const getWorkdayIndices = (maxDay) => {
-        const days = [];
-        for (let d = 0; d <= maxDay; d += 1) {
-          if (!isWeekend(d)) {
-            days.push(d);
-          }
-        }
-        return days.length ? days : [0];
-      };
+      const getWorkdayIndices = (maxDay) =>
+        Array.from({ length: maxDay + 1 }, (_, index) => index);
 
       const buildStartDays = (count, mode, sequenceLength) => {
         const startPoints = [];
@@ -759,7 +744,7 @@
         const maxStaff = Math.max(...dailyStaff, 0);
         const maxWip = Math.max(...dailyActive, 0);
         const fteFactor = Number.parseFloat(fteFactorInput.value) || 0;
-        kpiCycle.textContent = `Normal: ${sequenceStaffNormal.length} workdays · Slow: ${sequenceStaffSlow.length} workdays`;
+        kpiCycle.textContent = `Normal: ${sequenceStaffNormal.length} days · Slow: ${sequenceStaffSlow.length} days`;
         kpiFte.textContent = `${(maxStaff * fteFactor).toFixed(1)} FTE`;
         kpiWip.textContent = `${maxWip} sequences`;
         updateFteDeepDive(sequenceStaffNormal, sequenceStaffSlow, dailyStaff, dailyActive, maxStaff, maxWip);
@@ -906,8 +891,7 @@
         const maxStaffValue = getMaxStaffValue();
 
         if (startDays.length !== productCount) {
-          const maxCycle = Math.max(sequenceStaffNormal.length, sequenceStaffSlow.length);
-          startDays = buildStartDays(productCount, planningModeInput.value, maxCycle);
+          startDays = buildStartDays(productCount, planningModeInput.value, sequenceStaffNormal.length);
         }
         if (productStaffingType.length !== productCount) {
           productStaffingType = Array.from({ length: productCount }, (_, index) =>
@@ -951,10 +935,14 @@
           const staffingType = productStaffingType[i] || "normal";
           const sequenceStaff =
             staffingType === "slow" ? sequenceStaffSlow : sequenceStaffNormal;
+          const plannedNormalStart = startDays[i] ?? 0;
+          const plannedEndDay = getEndDayForStart(plannedNormalStart, sequenceStaffNormal.length);
           const latestStart = getLatestStartDay(sequenceStaff.length);
-          const plannedStart = startDays[i] ?? 0;
-          const startDay = adjustToWeekdayBounded(plannedStart, latestStart);
-          startDays[i] = startDay;
+          const startDay = adjustToWeekdayBounded(
+            startDayForEnd(plannedEndDay, sequenceStaff.length),
+            latestStart
+          );
+          startDays[i] = adjustToWeekdayBounded(plannedNormalStart, getLatestStartDay(sequenceStaffNormal.length));
           const workDays = buildWorkDays(startDay, sequenceStaff.length);
           workDays.forEach((day, idx) => {
             dailyActive[day] += 1;
@@ -1054,7 +1042,9 @@
         const dayIndex = getDayFromPointer(event, dragging.timeline);
         const latestStart = getLatestStartDay(dragging.sequenceLength);
         const startDay = adjustToWeekdayBounded(dayIndex, latestStart);
-        startDays[dragging.productIndex] = startDay;
+        const normalLength = getSequenceStaff("normal").length;
+        const endDay = getEndDayForStart(startDay, dragging.sequenceLength);
+        startDays[dragging.productIndex] = startDayForEnd(endDay, normalLength);
         dragging = null;
         renderGantt();
       };
@@ -1062,8 +1052,7 @@
       const handleInputChange = () => {
         const productCount = Number.parseInt(productCountInput.value, 10) || 0;
         const planningMode = planningModeInput.value;
-        const maxCycle = Math.max(getCycleTime("normal"), getCycleTime("slow"));
-        startDays = buildStartDays(productCount, planningMode, maxCycle);
+        startDays = buildStartDays(productCount, planningMode, getCycleTime("normal"));
         renderGantt();
       };
 
@@ -1128,8 +1117,8 @@
             <li><strong>Total staffing sequence per day (slow):</strong> [${combinedStaffSlow}]</li>
             <li><strong>Primary path staffing by day (slow):</strong> [${primaryStaffSlow}]</li>
             <li><strong>Parallel path staffing by day (slow):</strong> [${secondaryStaffSlow}]</li>
-            <li><strong>Cycle time (normal):</strong> ${cycleTimeNormal} workdays (${sequenceCalendarDays} calendar days incl. Sundays)</li>
-            <li><strong>Cycle time (slow):</strong> ${cycleTimeSlow} workdays</li>
+            <li><strong>Cycle time (normal):</strong> ${cycleTimeNormal} days (${sequenceCalendarDays} calendar days)</li>
+            <li><strong>Cycle time (slow):</strong> ${cycleTimeSlow} days</li>
             <li><strong>Tuck time:</strong> ${tuckDays} days (${tuckWeeks} weeks) = 13 weeks − cycle time</li>
             <li><strong>Start window used:</strong> first ${startWindowDays} days (${startWindowWeeks} weeks)</li>
             <li><strong>Planning distribution:</strong> ${planningLabels[planningMode] || planningMode}</li>
@@ -1149,7 +1138,7 @@
           startDays = buildStartDays(
             Number.parseInt(productCountInput.value, 10) || 0,
             planningModeInput.value,
-            Math.max(getCycleTime("normal"), getCycleTime("slow"))
+            getCycleTime("normal")
           );
           renderGantt();
         });
@@ -1158,7 +1147,7 @@
           startDays = buildStartDays(
             Number.parseInt(productCountInput.value, 10) || 0,
             planningModeInput.value,
-            Math.max(getCycleTime("normal"), getCycleTime("slow"))
+            getCycleTime("normal")
           );
           renderGantt();
         });
