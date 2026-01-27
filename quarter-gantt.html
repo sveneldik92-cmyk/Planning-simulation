@@ -694,29 +694,24 @@
       const getWorkdayIndices = (maxDay) =>
         Array.from({ length: maxDay + 1 }, (_, index) => index);
 
-      const buildEndDays = (count, mode) => {
-        const endPoints = [];
+      const buildEndDays = (count, /* mode parameter kept for  later */) => {
+        const endDays = [];
+        const cycleLen = getCycleTime("normal");
         if (count <= 0) {
-          return endPoints;
+          return endDays;
         }
-        const endWindowEnd = lastWorkingDay();
-        const endWorkDays = getWorkdayIndices(endWindowEnd);
-        const exponentMap = {
-          level: 1,
-          lightHockey: 0.82,
-          mildHockey: 0.68,
-          frontloaded: 0.55,
-        };
-        const exponent = exponentMap[mode] || 1;
-        const maxIndex = Math.max(count - 1, 1);
+        const maxDay = 90;
+        if (count === 1) {
+          endDays.push(0);
+          return endDays;
+        }
+        const step = maxDay / (count - 1);
         for (let i = 0; i < count; i += 1) {
-          const ratio = i / maxIndex;
-          const eased = Math.pow(ratio, exponent);
-          const workIndex = Math.round(eased * (endWorkDays.length - 1));
-          const boundedIndex = clamp(workIndex, 0, endWorkDays.length - 1);
-          endPoints.push(endWorkDays[boundedIndex]);
+          endDays.push(Math.round(i * step));
         }
-        return endPoints;
+        endDays[0] = 0;
+        endDays[count - 1] = maxDay;
+        return endDays;
       };
 
       const splitSegments = (workDays) => {
