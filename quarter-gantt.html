@@ -583,6 +583,9 @@
       const getCycleTime = () =>
         Math.max(1, Number.parseInt(cycleTimeNormalInput.value, 10) || 1);
 
+      const getCycleTime = () =>
+        Math.max(1, Number.parseInt(cycleTimeNormalInput.value, 10) || 1);
+
       const ensureParallelLength = (length) => {
         const current = parallelStaff.normal.primary.length;
         if (current === length) {
@@ -902,7 +905,11 @@
           }
 
           const plannedEndDay = endDays[i] ?? lastWorkingDay();
-          const startDay = startDayForEnd(plannedEndDay, sequenceStaffNormal.length);
+          const latestStart = getLatestStartDay(sequenceStaffNormal.length);
+          const startDay = adjustToWeekdayBounded(
+            startDayForEnd(plannedEndDay, sequenceStaffNormal.length),
+            latestStart
+          );
           currentStartDays[i] = startDay;
           const workDays = buildWorkDays(startDay, sequenceStaffNormal.length);
           workDays.forEach((day, idx) => {
