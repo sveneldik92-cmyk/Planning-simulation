@@ -580,24 +580,8 @@
         return day;
       };
 
-      const adjustToWeekdayBounded = (dayIndex, maxDay) => {
-        let day = dayIndex;
-        let guard = 0;
-        while (isWeekend(day) && guard < rangeDays) {
-          day = (day + 1) % rangeDays;
-          guard += 1;
-        }
-        if (day <= maxDay) {
-          return day;
-        }
-        day = dayIndex;
-        guard = 0;
-        while (isWeekend(day) && guard < rangeDays) {
-          day = (day - 1 + rangeDays) % rangeDays;
-          guard += 1;
-        }
-        return Math.min(day, maxDay);
-      };
+      const getCycleTime = () =>
+        Math.max(1, Number.parseInt(cycleTimeNormalInput.value, 10) || 1);
 
       const getCycleTime = () =>
         Math.max(1, Number.parseInt(cycleTimeNormalInput.value, 10) || 1);
@@ -1022,8 +1006,7 @@
           return;
         }
         const dayIndex = getDayFromPointer(event, dragging.timeline);
-        const latestStart = getLatestStartDay(dragging.sequenceLength);
-        const startDay = adjustToWeekdayBounded(dayIndex, latestStart);
+        const startDay = adjustToWeekday(dayIndex);
         const endDay = getEndDayForStart(startDay, dragging.sequenceLength);
         endDays[dragging.productIndex] = endDay;
         dragging = null;
