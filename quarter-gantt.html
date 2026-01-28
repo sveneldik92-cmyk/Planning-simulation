@@ -6,15 +6,17 @@
   <title>Quarterly Manpower Planning Gantt</title>
   <style>
     :root {
-      --light-blue: #3a7bd5;
-      --dark-blue: #174c8f;
-      --bg: #f7f9fc;
-      --text: #4b5a6a;
-      --border: #d7dbe2;
-      --weekend: #f1f3f7;
-      --bar: #3a7bd5;
-      --bar-light: #6ea1e3;
-      --accent: #2eaf5d;
+      --light-blue: #8ab4f8;
+      --dark-blue: #c7d7ff;
+      --bg: #0f141c;
+      --text: #d1d7e3;
+      --border: #2b3445;
+      --panel: #1a2230;
+      --panel-strong: #202a3b;
+      --weekend: #121923;
+      --bar: #8ab4f8;
+      --bar-light: #5f8bd6;
+      --accent: #54d68d;
     }
     * {
       box-sizing: border-box;
@@ -46,26 +48,26 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      background: #e8f1ff;
+      background: #18253a;
       color: var(--dark-blue);
-      border: 1px solid #c6dbf8;
+      border: 1px solid #26395a;
       border-radius: 999px;
       padding: 6px 14px;
       font-weight: 700;
       font-size: 14px;
       width: fit-content;
-      box-shadow: 0 4px 12px rgba(23, 76, 143, 0.12);
+      box-shadow: 0 4px 12px rgba(6, 10, 18, 0.4);
     }
     .credential-banner span {
       font-weight: 600;
-      color: #4b5a6a;
+      color: #b4bfd6;
     }
     header p {
       margin: 0;
-      color: #7a8794;
+      color: #a7b1c4;
     }
     .input-pane {
-      background: #fff;
+      background: var(--panel);
       padding: 16px;
       border-radius: 8px;
       border: 1px solid var(--border);
@@ -89,13 +91,15 @@
       border: 1px solid var(--border);
       border-radius: 6px;
       font-size: 14px;
+      background: var(--panel-strong);
+      color: var(--text);
     }
     .field textarea {
       min-height: 70px;
       resize: vertical;
     }
     .field small {
-      color: #7a8794;
+      color: #9aa5b6;
     }
     .kpi-grid {
       display: grid;
@@ -103,7 +107,7 @@
       gap: 12px;
     }
     .kpi {
-      background: #fff;
+      background: var(--panel);
       border-radius: 10px;
       border: 1px solid var(--border);
       padding: 14px 16px;
@@ -123,13 +127,13 @@
       color: var(--accent);
     }
     .kpi.empty span {
-      color: #b7c0cc;
+      color: #6e7a90;
     }
     .legend {
       display: flex;
       gap: 16px;
       font-size: 13px;
-      color: #7a8794;
+      color: #9aa5b6;
     }
     .legend .chip {
       display: inline-flex;
@@ -144,10 +148,10 @@
     }
     .legend .swatch.weekend {
       background: var(--weekend);
-      border: 1px solid #e3e7ee;
+      border: 1px solid #202a3b;
     }
     details.section {
-      background: #fff;
+      background: var(--panel);
       border-radius: 12px;
       border: 1px solid var(--border);
       padding: 6px 16px 16px;
@@ -169,14 +173,14 @@
     details.section summary::after {
       content: "▾";
       font-size: 14px;
-      color: #7a8794;
+      color: #9aa5b6;
       transition: transform 0.2s ease;
     }
     details.section[open] summary::after {
       transform: rotate(180deg);
     }
     .gantt-wrapper {
-      background: #fff;
+      background: var(--panel);
       border-radius: 8px;
       border: 1px solid var(--border);
       padding: 12px;
@@ -211,7 +215,7 @@
     }
     .week-cell {
       text-align: center;
-      border-left: 1px solid #eef1f6;
+      border-left: 1px solid #2a3344;
     }
     .week-cell:first-child {
       border-left: none;
@@ -222,7 +226,7 @@
     }
     .row-label {
       font-weight: 600;
-      color: #2f3b4a;
+      color: var(--text);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -238,6 +242,8 @@
       border: 1px solid var(--border);
       font-size: 12px;
       max-width: 140px;
+      background: var(--panel-strong);
+      color: var(--text);
     }
     .timeline {
       display: grid;
@@ -247,9 +253,9 @@
       min-height: 20px;
     }
     .day-cell {
-      border-right: 1px solid #f0f2f6;
-      border-bottom: 1px solid #f5f6fa;
-      background: #fff;
+      border-right: 1px solid #1f2837;
+      border-bottom: 1px solid #1b2331;
+      background: var(--panel);
       grid-row: 1;
     }
     .day-cell.weekend {
@@ -261,19 +267,19 @@
       align-self: center;
       border-radius: 6px;
       background: linear-gradient(120deg, var(--bar), var(--bar-light));
-      box-shadow: 0 2px 6px rgba(58, 123, 213, 0.2);
+      box-shadow: 0 2px 6px rgba(6, 10, 18, 0.4);
       cursor: grab;
       position: relative;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #fff;
+      color: #0b1220;
       font-size: 10px;
       font-weight: 600;
       z-index: 3;
     }
     .sequence-bar.preview {
-      background: rgba(58, 123, 213, 0.4);
+      background: rgba(138, 180, 248, 0.5);
       box-shadow: none;
       cursor: grabbing;
     }
@@ -288,7 +294,7 @@
     }
     .instructions {
       font-size: 13px;
-      color: #7a8794;
+      color: #9aa5b6;
     }
     .parallel-panel {
       padding: 4px 0 0;
@@ -302,7 +308,7 @@
     }
     .parallel-panel .note {
       font-size: 12px;
-      color: #7a8794;
+      color: #9aa5b6;
       margin: 0;
     }
     .mini-gantt {
@@ -318,20 +324,20 @@
     }
     .mini-gantt-header {
       font-size: 12px;
-      color: #7a8794;
+      color: #9aa5b6;
       text-transform: uppercase;
       letter-spacing: 0.03em;
     }
     .mini-label {
       font-weight: 600;
-      color: #2f3b4a;
+      color: var(--text);
     }
     .mini-cell {
-      background: #f5f8ff;
+      background: var(--panel-strong);
       border-radius: 8px;
       padding: 6px;
-      border: 1px solid #e2e8f4;
-      box-shadow: inset 0 1px 2px rgba(23, 76, 143, 0.08);
+      border: 1px solid #2a354a;
+      box-shadow: inset 0 1px 2px rgba(7, 11, 20, 0.45);
     }
     .mini-cell input {
       width: 100%;
@@ -346,17 +352,17 @@
     }
     .mini-note {
       font-size: 12px;
-      color: #7a8794;
+      color: #9aa5b6;
     }
     .fte-details {
       padding: 4px 0 0;
       font-size: 13px;
-      color: #5a6674;
+      color: #b5bfcd;
       line-height: 1.5;
     }
     .fte-details .note {
       margin: 0 0 8px;
-      color: #7a8794;
+      color: #9aa5b6;
       font-size: 12px;
     }
     .fte-details h3 {
@@ -369,7 +375,7 @@
     }
     .footer-note {
       font-size: 12px;
-      color: #97a1ad;
+      color: #9aa5b6;
       margin-top: 4px;
     }
     @media (max-width: 900px) {
@@ -694,29 +700,31 @@
       const getWorkdayIndices = (maxDay) =>
         Array.from({ length: maxDay + 1 }, (_, index) => index);
 
-      const buildEndDays = (count, mode) => {
-        const endPoints = [];
+      const buildEndDays = (count, /* mode parameter kept for  later */) => {
+        const endDays = [];
+        const cycleLen = getCycleTime("normal");
         if (count <= 0) {
-          return endPoints;
+          return endDays;
         }
-        const endWindowEnd = lastWorkingDay();
-        const endWorkDays = getWorkdayIndices(endWindowEnd);
-        const exponentMap = {
-          level: 1,
-          lightHockey: 0.82,
-          mildHockey: 0.68,
-          frontloaded: 0.55,
-        };
-        const exponent = exponentMap[mode] || 1;
-        const maxIndex = Math.max(count - 1, 1);
-        for (let i = 0; i < count; i += 1) {
-          const ratio = i / maxIndex;
-          const eased = Math.pow(ratio, exponent);
-          const workIndex = Math.round(eased * (endWorkDays.length - 1));
-          const boundedIndex = clamp(workIndex, 0, endWorkDays.length - 1);
-          endPoints.push(endWorkDays[boundedIndex]);
+        const maxDay = 90;
+        if (count === 1) {
+          endDays.push(0);
+          return endDays;
         }
-        return endPoints;
+        const totalGap = maxDay;
+        const slots = count - 1;
+        const baseGap = Math.floor(totalGap / slots);
+        const extraGap = totalGap % slots;
+        let current = 0;
+        endDays.push(current);
+        for (let i = 1; i < count; i += 1) {
+          const step = baseGap + (i <= extraGap ? 1 : 0);
+          current += step;
+          endDays.push(current);
+        }
+        endDays[0] = 0;
+        endDays[count - 1] = maxDay;
+        return endDays;
       };
 
       const splitSegments = (workDays) => {
