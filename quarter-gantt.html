@@ -711,16 +711,9 @@
           endDays.push(0);
           return endDays;
         }
-        const totalGap = maxDay;
-        const slots = count - 1;
-        const baseGap = Math.floor(totalGap / slots);
-        const extraGap = totalGap % slots;
-        let current = 0;
-        endDays.push(current);
-        for (let i = 1; i < count; i += 1) {
-          const step = baseGap + (i <= extraGap ? 1 : 0);
-          current += step;
-          endDays.push(current);
+        const step = maxDay / (count - 1);
+        for (let i = 0; i < count; i += 1) {
+          endDays.push(Math.round(i * step));
         }
         endDays[0] = 0;
         endDays[count - 1] = maxDay;
