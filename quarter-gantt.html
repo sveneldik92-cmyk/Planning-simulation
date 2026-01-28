@@ -580,25 +580,6 @@
         return day;
       };
 
-      const adjustToWeekdayBounded = (dayIndex, maxDay) => {
-        let day = dayIndex;
-        let guard = 0;
-        while (isWeekend(day) && guard < rangeDays) {
-          day = (day + 1) % rangeDays;
-          guard += 1;
-        }
-        if (day <= maxDay) {
-          return day;
-        }
-        day = dayIndex;
-        guard = 0;
-        while (isWeekend(day) && guard < rangeDays) {
-          day = (day - 1 + rangeDays) % rangeDays;
-          guard += 1;
-        }
-        return Math.min(day, maxDay);
-      };
-
       const getCycleTime = () =>
         Math.max(1, Number.parseInt(cycleTimeNormalInput.value, 10) || 1);
 
@@ -921,10 +902,8 @@
           }
 
           const plannedEndDay = endDays[i] ?? lastWorkingDay();
-          const latestStart = getLatestStartDay(sequenceStaffNormal.length);
-          const startDay = adjustToWeekdayBounded(
-            startDayForEnd(plannedEndDay, sequenceStaffNormal.length),
-            latestStart
+          const startDay = adjustToWeekday(
+            startDayForEnd(plannedEndDay, sequenceStaffNormal.length)
           );
           currentStartDays[i] = startDay;
           const workDays = buildWorkDays(startDay, sequenceStaffNormal.length);
@@ -1022,8 +1001,7 @@
           return;
         }
         const dayIndex = getDayFromPointer(event, dragging.timeline);
-        const latestStart = getLatestStartDay(dragging.sequenceLength);
-        const startDay = adjustToWeekdayBounded(dayIndex, latestStart);
+        const startDay = adjustToWeekday(dayIndex);
         const endDay = getEndDayForStart(startDay, dragging.sequenceLength);
         endDays[dragging.productIndex] = endDay;
         dragging = null;
@@ -1107,6 +1085,11 @@
         window.addEventListener("pointermove", handlePointerMove);
         window.addEventListener("pointerup", handlePointerUp);
       });
+
+      // Even-spacing sanity: 21 products, cycle 10 d → all unique starts
+      // const ends = [0,4,9,14,18,23,27,32,36,41,45,50,54,59,63,68,72,77,81,86,90];
+      // const starts = ends.map(e => adjustToWeekday(startDayForEnd(e,10)));
+      // console.assert(new Set(starts).size === 21, 'start-days must be unique');
     })();
   </script>
 </body>
