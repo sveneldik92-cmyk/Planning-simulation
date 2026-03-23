@@ -513,6 +513,68 @@
       color: #b5bfcd;
       line-height: 1.5;
     }
+    .detail-toggle {
+      margin-top: 12px;
+      border: 1px solid #263145;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.02);
+      padding: 0 12px 12px;
+    }
+    .detail-toggle summary {
+      cursor: pointer;
+      padding: 12px 0;
+      color: var(--dark-blue);
+      font-weight: 700;
+    }
+    .breakdown-grid {
+      display: grid;
+      gap: 12px;
+    }
+    .breakdown-card {
+      border: 1px solid #263145;
+      border-radius: 10px;
+      background: var(--panel-strong);
+      padding: 12px;
+    }
+    .breakdown-card h4 {
+      margin: 0 0 6px;
+      color: var(--dark-blue);
+    }
+    .breakdown-card p {
+      margin: 0 0 10px;
+      color: #9aa5b6;
+      font-size: 12px;
+    }
+    .stack-bar {
+      display: flex;
+      width: 100%;
+      min-height: 18px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #111926;
+      border: 1px solid #263145;
+      margin-bottom: 10px;
+    }
+    .stack-segment {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #08111f;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .stack-segment.parallel {
+      color: var(--text);
+    }
+    .breakdown-meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+      font-size: 12px;
+      color: #b5bfcd;
+    }
     .fte-details .note {
       margin: 0 0 8px;
       color: #9aa5b6;
@@ -721,7 +783,6 @@
               <thead>
                 <tr>
                   <th>Day</th>
-                  <th>Week</th>
                   <th>Weekday</th>
                   <th>Shifts</th>
                   <th>Staffing</th>
@@ -732,6 +793,10 @@
               <tbody id="dailyMetricsBody"></tbody>
             </table>
           </div>
+          <details class="detail-toggle">
+            <summary>Expand staffing build-up analysis</summary>
+            <div class="breakdown-grid" id="staffingBreakdown"></div>
+          </details>
         </div>
       </section>
     </details>
@@ -785,6 +850,7 @@
       const dailyChartWrap = byId("dailyChartWrap");
       const chartTooltip = byId("chartTooltip");
       const dailyMetricsBody = byId("dailyMetricsBody");
+      const staffingBreakdown = byId("staffingBreakdown");
 
       let currentStartShiftPositions = [];
       let startShiftPositions = [];
@@ -875,25 +941,24 @@
       const buildShiftSequence = (startShiftIndex, type = "normal") => {
         const shiftSlots = getSequenceShiftSlots(type);
         const quarterSchedule = getQuarterShiftSchedule();
+        const totalShifts = Math.max(quarterSchedule.totalShifts, 1);
         const boundedStart = clamp(
           startShiftIndex,
           getEarliestStartShiftIndex(type),
-          Math.max(quarterSchedule.totalShifts - shiftSlots.length, 0)
+          Math.max(quarterSchedule.totalShifts - 1, 0)
         );
-        const sequenceShifts = shiftSlots
-          .map((staffing, offset) => {
-            const shiftIndex = boundedStart + offset;
-            const shiftMeta = quarterSchedule.shifts[shiftIndex];
-            if (!shiftMeta) {
-              return null;
-            }
-            return {
-              shiftIndex,
-              staffing,
-              ...shiftMeta,
-            };
-          })
-          .filter(Boolean);
+        const sequenceShifts = shiftSlots.map((staffing, offset) => {
+          const rawShiftIndex = boundedStart + offset;
+          const wrappedShiftIndex = ((rawShiftIndex % totalShifts) + totalShifts) % totalShifts;
+          const shiftMeta = quarterSchedule.shifts[wrappedShiftIndex];
+          return {
+            shiftIndex: wrappedShiftIndex,
+            rawShiftIndex,
+            staffing,
+            wraps: rawShiftIndex !== wrappedShiftIndex,
+            ...shiftMeta,
+          };
+        });
         const dailyMap = new Map();
         sequenceShifts.forEach((entry) => {
           if (!dailyMap.has(entry.day)) {
@@ -910,15 +975,14 @@
           calendarDays,
           activeDays: calendarDays.map(({ day }) => day),
           startShiftIndex: boundedStart,
-          endShiftIndex: Math.max(boundedStart + shiftSlots.length - 1, boundedStart),
+          endShiftIndex: ((boundedStart + shiftSlots.length - 1) % totalShifts + totalShifts) % totalShifts,
           endDay: calendarDays.length ? calendarDays[calendarDays.length - 1].day : 0,
         };
       };
 
-      const getLatestStartShiftIndex = (type = "normal") => {
+      const getLatestStartShiftIndex = () => {
         const totalShifts = getQuarterShiftSchedule().totalShifts;
-        const sequenceLength = getSequenceShiftSlots(type).length;
-        return Math.max(totalShifts - sequenceLength, 0);
+        return Math.max(totalShifts - 1, 0);
       };
 
       const buildWorkDays = (startShiftIndex, type = "normal") => buildShiftSequence(startShiftIndex, type).activeDays;
@@ -939,7 +1003,7 @@
         const latestStartShiftIndex = getLatestStartShiftIndex("normal");
         const totalEndSlots = getQuarterShiftSchedule().totalShifts;
         if (count === 1) {
-          plannedStarts.push(latestStartShiftIndex);
+          plannedStarts.push(0);
           return plannedStarts;
         }
         const safeCount = Math.min(count, totalEndSlots);
@@ -961,14 +1025,12 @@
           }
         }
         for (let i = 0; i < safeCount; i += 1) {
-          const minEndSlot = i;
-          const maxEndSlot = (totalEndSlots - 1) - (safeCount - 1 - i);
           let candidateEnd = Math.round(rawTargets[i]);
           if (i > 0) {
-            candidateEnd = Math.max(candidateEnd, (plannedStarts[i - 1] + getSequenceShiftSlots("normal").length));
+            candidateEnd = Math.max(candidateEnd, plannedStarts[i - 1] + 1);
           }
-          const boundedEnd = clamp(candidateEnd, minEndSlot, maxEndSlot);
-          plannedStarts.push(clamp(boundedEnd - getSequenceShiftSlots("normal").length + 1, earliestStartShiftIndex, latestStartShiftIndex));
+          const boundedEnd = clamp(candidateEnd, i, totalEndSlots - safeCount + i);
+          plannedStarts.push(clamp(boundedEnd, earliestStartShiftIndex, latestStartShiftIndex));
         }
         plannedStarts[0] = earliestStartShiftIndex;
         plannedStarts[safeCount - 1] = latestStartShiftIndex;
@@ -1349,7 +1411,6 @@
         dailyMetricsBody.innerHTML = dailyStaff.map((staffValue, index) => `
           <tr>
             <td>Day ${index + 1}</td>
-            <td>W${Math.floor(index / 7) + 1}</td>
             <td>${dayLabels[getDow(index)]}</td>
             <td>${getShiftsForDay(index)}</td>
             <td>${staffValue.toFixed(1)}</td>
@@ -1359,12 +1420,44 @@
         `).join('');
       };
 
+      const renderStaffingBreakdown = (dailyBreakdown) => {
+        staffingBreakdown.innerHTML = dailyBreakdown
+          .filter((entry) => entry.totalStaffing > 0)
+          .map((entry) => {
+            const total = entry.totalStaffing || 1;
+            const criticalWidth = (entry.criticalStaffing / total) * 100;
+            const parallelWidth = (entry.parallelStaffing / total) * 100;
+            return `
+              <div class="breakdown-card">
+                <h4>Day ${entry.day + 1} · ${dayLabels[getDow(entry.day)]}</h4>
+                <p>Visual split of the staffing load that builds the daily total.</p>
+                <div class="stack-bar">
+                  <div class="stack-segment" style="width:${criticalWidth.toFixed(2)}%;background:#8ab4f8;">${entry.criticalStaffing.toFixed(1)}</div>
+                  <div class="stack-segment parallel" style="width:${parallelWidth.toFixed(2)}%;background:#31558d;">${entry.parallelStaffing.toFixed(1)}</div>
+                </div>
+                <div class="breakdown-meta">
+                  <div><strong>Total staffing:</strong> ${entry.totalStaffing.toFixed(1)}</div>
+                  <div><strong>Critical path:</strong> ${entry.criticalStaffing.toFixed(1)}</div>
+                  <div><strong>Parallel path:</strong> ${entry.parallelStaffing.toFixed(1)}</div>
+                  <div><strong>Running sequences:</strong> ${entry.activeProducts}</div>
+                </div>
+              </div>`;
+          }).join('') || '<p class="note">No staffed days are currently scheduled in this quarter.</p>';
+      };
+
       const renderGantt = ({ renderParallel = true, renderSchedule = true } = {}) => {
         const productCount = Number.parseInt(productCountInput.value, 10) || 0;
         const sequenceStaffNormal = getSequenceStaff("normal");
         const sequenceStaffSlow = getSequenceStaff("slow");
         const dailyStaff = Array.from({ length: rangeDays }, () => 0);
         const dailyActive = Array.from({ length: rangeDays }, () => 0);
+        const dailyBreakdown = Array.from({ length: rangeDays }, (_, day) => ({
+          day,
+          criticalStaffing: 0,
+          parallelStaffing: 0,
+          totalStaffing: 0,
+          activeProducts: 0,
+        }));
         const maxStaffValue = getMaxStaffValue();
 
         if (startShiftPositions.length !== productCount) {
@@ -1430,8 +1523,16 @@
           calendarSequence.calendarDays.forEach(({ day, staffing, consumed }) => {
             if (consumed > 0) {
               dailyActive[day] += 1;
+              dailyBreakdown[day].activeProducts += 1;
             }
             dailyStaff[day] += staffing;
+            dailyBreakdown[day].totalStaffing += staffing;
+          });
+          calendarSequence.sequenceShifts.forEach(({ day }, shiftOffset) => {
+            const critical = parallelStaff[staffingType].critical[shiftOffset] || 0;
+            const parallel = parallelStaff[staffingType].parallel[shiftOffset] || 0;
+            dailyBreakdown[day].criticalStaffing += critical;
+            dailyBreakdown[day].parallelStaffing += parallel;
           });
           const sequenceIndexByDay = new Map(
             calendarSequence.sequenceShifts.map(({ shiftIndex }, idx) => [shiftIndex, idx])
@@ -1447,7 +1548,8 @@
             bar.style.gridColumnEnd = segment.end + 2;
             const startMeta = getQuarterShiftSchedule().shifts[segment.start];
             const endMeta = getQuarterShiftSchedule().shifts[segment.end];
-            bar.title = `Start Day ${startMeta.day + 1} Shift ${startMeta.shiftInDay + 1}, end Day ${endMeta.day + 1} Shift ${endMeta.shiftInDay + 1}`;
+            const wrapNote = segment.start > segment.end ? ' (wraps quarter boundary)' : '';
+            bar.title = `Start Day ${startMeta.day + 1} Shift ${startMeta.shiftInDay + 1}, end Day ${endMeta.day + 1} Shift ${endMeta.shiftInDay + 1}${wrapNote}`;
             const segmentLength = segment.end - segment.start + 1;
             const segmentStartIndex = sequenceIndexByDay.get(segment.start) || 0;
             const segmentStaffing = calendarSequence.sequenceShifts.map(({ staffing }) => staffing);
@@ -1475,6 +1577,7 @@
         updateKpis(sequenceStaffNormal, sequenceStaffSlow, dailyStaff, dailyActive);
         renderDailyChart(dailyStaff, dailyActive);
         renderDailyTable(dailyStaff, dailyActive);
+        renderStaffingBreakdown(dailyBreakdown);
         saveState();
         if (renderParallel) {
           renderParallelGantt("normal", sequenceStaffNormal.length, parallelGanttNormal);
