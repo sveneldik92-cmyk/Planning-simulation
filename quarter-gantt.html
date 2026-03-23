@@ -337,7 +337,7 @@
     }
     .mini-gantt-row {
       display: grid;
-      grid-template-columns: 120px repeat(var(--mini-days, 10), minmax(36px, 1fr));
+      grid-template-columns: 120px repeat(var(--mini-days, 10), minmax(30px, 0.8fr));
       gap: 6px;
       align-items: center;
     }
@@ -346,6 +346,7 @@
       color: #9aa5b6;
       text-transform: uppercase;
       letter-spacing: 0.03em;
+      text-align: center;
     }
     .mini-label {
       font-weight: 600;
@@ -354,7 +355,7 @@
     .mini-cell {
       background: var(--panel-strong);
       border-radius: 8px;
-      padding: 6px;
+      padding: 5px;
       border: 1px solid #2a354a;
       box-shadow: inset 0 1px 2px rgba(7, 11, 20, 0.45);
     }
@@ -869,18 +870,30 @@
 
       const getQuarterShiftSchedule = () => buildQuarterShiftSchedule();
 
+      const getEarliestStartShiftIndex = (type = "normal") => 1 - getSequenceShiftSlots(type).length;
+
       const buildShiftSequence = (startShiftIndex, type = "normal") => {
         const shiftSlots = getSequenceShiftSlots(type);
         const quarterSchedule = getQuarterShiftSchedule();
-        const boundedStart = clamp(startShiftIndex, 0, Math.max(quarterSchedule.totalShifts - shiftSlots.length, 0));
-        const sequenceShifts = shiftSlots.map((staffing, offset) => {
-          const shiftMeta = quarterSchedule.shifts[boundedStart + offset];
-          return {
-            shiftIndex: boundedStart + offset,
-            staffing,
-            ...shiftMeta,
-          };
-        });
+        const boundedStart = clamp(
+          startShiftIndex,
+          getEarliestStartShiftIndex(type),
+          Math.max(quarterSchedule.totalShifts - shiftSlots.length, 0)
+        );
+        const sequenceShifts = shiftSlots
+          .map((staffing, offset) => {
+            const shiftIndex = boundedStart + offset;
+            const shiftMeta = quarterSchedule.shifts[shiftIndex];
+            if (!shiftMeta) {
+              return null;
+            }
+            return {
+              shiftIndex,
+              staffing,
+              ...shiftMeta,
+            };
+          })
+          .filter(Boolean);
         const dailyMap = new Map();
         sequenceShifts.forEach((entry) => {
           if (!dailyMap.has(entry.day)) {
@@ -922,13 +935,14 @@
         if (count <= 0) {
           return plannedStarts;
         }
+        const earliestStartShiftIndex = getEarliestStartShiftIndex("normal");
         const latestStartShiftIndex = getLatestStartShiftIndex("normal");
+        const totalEndSlots = getQuarterShiftSchedule().totalShifts;
         if (count === 1) {
-          plannedStarts.push(0);
+          plannedStarts.push(latestStartShiftIndex);
           return plannedStarts;
         }
-        const maxStartSlots = latestStartShiftIndex + 1;
-        const safeCount = Math.min(count, maxStartSlots);
+        const safeCount = Math.min(count, totalEndSlots);
         const modeExponent = {
           level: 1,
           frontloaded: 0.65,
@@ -936,26 +950,27 @@
           mildHockey: 0.35,
         };
         const exponent = modeExponent[mode] ?? 1;
-        const step = latestStartShiftIndex / (safeCount - 1);
+        const step = (totalEndSlots - 1) / (safeCount - 1);
         const rawTargets = [];
         for (let i = 0; i < safeCount; i += 1) {
           if (exponent === 1) {
             rawTargets.push(i * step);
           } else {
             const normalized = i / (safeCount - 1);
-            rawTargets.push(Math.pow(normalized, exponent) * latestStartShiftIndex);
+            rawTargets.push(Math.pow(normalized, exponent) * (totalEndSlots - 1));
           }
         }
         for (let i = 0; i < safeCount; i += 1) {
-          const minSlot = i;
-          const maxSlot = latestStartShiftIndex - (safeCount - 1 - i);
-          let candidate = Math.round(rawTargets[i]);
+          const minEndSlot = i;
+          const maxEndSlot = (totalEndSlots - 1) - (safeCount - 1 - i);
+          let candidateEnd = Math.round(rawTargets[i]);
           if (i > 0) {
-            candidate = Math.max(candidate, plannedStarts[i - 1] + 1);
+            candidateEnd = Math.max(candidateEnd, (plannedStarts[i - 1] + getSequenceShiftSlots("normal").length));
           }
-          plannedStarts.push(clamp(candidate, minSlot, maxSlot));
+          const boundedEnd = clamp(candidateEnd, minEndSlot, maxEndSlot);
+          plannedStarts.push(clamp(boundedEnd - getSequenceShiftSlots("normal").length + 1, earliestStartShiftIndex, latestStartShiftIndex));
         }
-        plannedStarts[0] = 0;
+        plannedStarts[0] = earliestStartShiftIndex;
         plannedStarts[safeCount - 1] = latestStartShiftIndex;
         if (safeCount < count) {
           plannedStarts.push(...Array.from({ length: count - safeCount }, () => latestStartShiftIndex));
@@ -992,9 +1007,8 @@
         updateFteDeepDive(sequenceStaffNormal, sequenceStaffSlow, dailyStaff, dailyActive, maxStaff, maxWip);
       };
 
-      const focusNextCell = (rowEl, index) => {
-        const inputs = Array.from(rowEl.querySelectorAll("input"));
-        const next = inputs[index + 1];
+      const focusNextCell = (container, selector) => {
+        const next = container.querySelector(selector);
         if (next) {
           next.focus();
           next.select();
@@ -1010,11 +1024,11 @@
         const header = document.createElement("div");
         header.className = "mini-gantt-row mini-gantt-header";
         const headerLabel = document.createElement("div");
-        headerLabel.textContent = "Path";
+        headerLabel.textContent = "Shift";
         header.appendChild(headerLabel);
         for (let i = 0; i < length; i += 1) {
           const cell = document.createElement("div");
-          cell.textContent = `Shift ${i + 1}`;
+          cell.textContent = `${i + 1}`;
           header.appendChild(cell);
         }
         target.appendChild(header);
@@ -1038,19 +1052,24 @@
             const input = document.createElement("input");
             input.type = "number";
             input.min = "0";
+            input.dataset.colIndex = String(i);
             input.value = String(parallelStaff[type][row.key][i] ?? 0);
             input.addEventListener("input", (event) => {
               parallelStaff[type][row.key][i] = Number.parseInt(input.value, 10) || 0;
-              renderGantt({ renderParallel: false, renderSchedule: false });
               const isDelete = event.inputType && event.inputType.startsWith("delete");
+              renderGantt({ renderParallel: false, renderSchedule: false });
               if (!isDelete && input.value !== "") {
-                focusNextCell(rowEl, i);
+                requestAnimationFrame(() => {
+                  focusNextCell(target, `.mini-gantt-row:nth-child(${rows.findIndex((item) => item.key === row.key) + 2}) input[data-col-index="${i + 1}"]`);
+                });
               }
             });
             input.addEventListener("keydown", (event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                focusNextCell(rowEl, i);
+                requestAnimationFrame(() => {
+                  focusNextCell(target, `.mini-gantt-row:nth-child(${rows.findIndex((item) => item.key === row.key) + 2}) input[data-col-index="${i + 1}"]`);
+                });
               }
             });
             cell.appendChild(input);
@@ -1089,7 +1108,7 @@
             .reduce((sum, { shiftCount }) => sum + shiftCount, 0);
           const cell = document.createElement("div");
           cell.className = "week-cell";
-          cell.textContent = `W${w + 1} · ${shiftsInWeek} shifts`;
+          cell.textContent = `Week ${w + 1}`;
           cell.style.gridColumn = `span ${Math.max(shiftsInWeek, 1)}`;
           weekHeader.appendChild(cell);
         }
@@ -1196,7 +1215,7 @@
         const header = document.createElement("div");
         header.className = "mini-gantt-row mini-gantt-header";
         const headerLabel = document.createElement("div");
-        headerLabel.textContent = "Pattern";
+        headerLabel.textContent = "Week";
         header.appendChild(headerLabel);
         dayLabels.slice(1).concat(dayLabels.slice(0, 1)).forEach((label) => {
           const cell = document.createElement("div");
@@ -1223,10 +1242,25 @@
             input.min = "0";
             input.max = "2";
             input.step = "1";
+            input.dataset.colIndex = String(dayIndexMonStart);
             input.value = String(value ?? defaultDailyShifts);
-            input.addEventListener("input", () => {
+            input.addEventListener("input", (event) => {
               weeklyShiftCounts[actualDayIndex] = clamp(Number.parseInt(input.value, 10) || 0, 0, 2);
+              const isDelete = event.inputType && event.inputType.startsWith("delete");
               renderGantt({ renderParallel: false, renderSchedule: true });
+              if (!isDelete && input.value !== "") {
+                requestAnimationFrame(() => {
+                  focusNextCell(weeklyShiftSchedule, `.mini-gantt-row:nth-child(2) input[data-col-index="${dayIndexMonStart + 1}"]`);
+                });
+              }
+            });
+            input.addEventListener("keydown", (event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                requestAnimationFrame(() => {
+                  focusNextCell(weeklyShiftSchedule, `.mini-gantt-row:nth-child(2) input[data-col-index="${dayIndexMonStart + 1}"]`);
+                });
+              }
             });
             cell.appendChild(input);
             row.appendChild(cell);
@@ -1386,7 +1420,11 @@
           const staffingType = productStaffingType[i] || "normal";
           const sequenceStaff =
             staffingType === "slow" ? sequenceStaffSlow : sequenceStaffNormal;
-          const startShiftIndex = clamp(startShiftPositions[i] ?? 0, 0, getLatestStartShiftIndex(staffingType));
+          const startShiftIndex = clamp(
+            startShiftPositions[i] ?? 0,
+            getEarliestStartShiftIndex(staffingType),
+            getLatestStartShiftIndex(staffingType)
+          );
           currentStartShiftPositions[i] = startShiftIndex;
           const calendarSequence = buildShiftSequence(startShiftIndex, staffingType);
           calendarSequence.calendarDays.forEach(({ day, staffing, consumed }) => {
@@ -1490,7 +1528,7 @@
           return;
         }
         const shiftIndex = getShiftIndexFromPointer(event, dragging.timeline);
-        const startShiftIndex = clamp(shiftIndex, 0, getLatestStartShiftIndex(dragging.staffingType));
+        const startShiftIndex = clamp(shiftIndex, getEarliestStartShiftIndex(dragging.staffingType), getLatestStartShiftIndex(dragging.staffingType));
         buildPreviewBars(dragging.timeline, startShiftIndex);
       };
 
@@ -1499,7 +1537,7 @@
           return;
         }
         const shiftIndex = getShiftIndexFromPointer(event, dragging.timeline);
-        const startShiftIndex = clamp(shiftIndex, 0, getLatestStartShiftIndex(dragging.staffingType));
+        const startShiftIndex = clamp(shiftIndex, getEarliestStartShiftIndex(dragging.staffingType), getLatestStartShiftIndex(dragging.staffingType));
         startShiftPositions[dragging.productIndex] = startShiftIndex;
         dragging = null;
         renderWeekHeader();
