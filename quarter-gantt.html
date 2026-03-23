@@ -999,11 +999,12 @@
         if (count <= 0) {
           return plannedStarts;
         }
+        const sequenceLength = getSequenceShiftSlots("normal").length;
         const earliestStartShiftIndex = getEarliestStartShiftIndex("normal");
         const latestStartShiftIndex = getLatestStartShiftIndex("normal");
         const totalEndSlots = getQuarterShiftSchedule().totalShifts;
         if (count === 1) {
-          plannedStarts.push(0);
+          plannedStarts.push(latestStartShiftIndex);
           return plannedStarts;
         }
         const safeCount = Math.min(count, totalEndSlots);
@@ -1024,16 +1025,21 @@
             rawTargets.push(Math.pow(normalized, exponent) * (totalEndSlots - 1));
           }
         }
+        const plannedEndSlots = [];
         for (let i = 0; i < safeCount; i += 1) {
           let candidateEnd = Math.round(rawTargets[i]);
           if (i > 0) {
-            candidateEnd = Math.max(candidateEnd, plannedStarts[i - 1] + 1);
+            candidateEnd = Math.max(candidateEnd, plannedEndSlots[i - 1] + 1);
           }
-          const boundedEnd = clamp(candidateEnd, i, totalEndSlots - safeCount + i);
-          plannedStarts.push(clamp(boundedEnd, earliestStartShiftIndex, latestStartShiftIndex));
+          plannedEndSlots.push(clamp(candidateEnd, i, totalEndSlots - safeCount + i));
         }
-        plannedStarts[0] = earliestStartShiftIndex;
-        plannedStarts[safeCount - 1] = latestStartShiftIndex;
+        plannedEndSlots[0] = 0;
+        plannedEndSlots[safeCount - 1] = totalEndSlots - 1;
+        plannedEndSlots.forEach((endShiftIndex) => {
+          plannedStarts.push(
+            clamp(endShiftIndex - sequenceLength + 1, earliestStartShiftIndex, latestStartShiftIndex)
+          );
+        });
         if (safeCount < count) {
           plannedStarts.push(...Array.from({ length: count - safeCount }, () => latestStartShiftIndex));
         }
