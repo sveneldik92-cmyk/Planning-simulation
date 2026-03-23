@@ -910,17 +910,18 @@
         Array.from({ length: maxDay + 1 }, (_, index) => index);
 
       const buildEndDays = (count, mode) => {
-        const endDays = [];
+        // Distribute products by start day first so every row stays aligned to the shared quarter calendar.
+        const plannedEndDays = [];
         if (count <= 0) {
-          return endDays;
+          return plannedEndDays;
         }
-        const maxDay = rangeDays - 1;
+        const latestStartDay = getLatestStartDay("normal");
         if (count === 1) {
-          endDays.push(0);
-          return endDays;
+          plannedEndDays.push(getEndDayForStart(0, "normal"));
+          return plannedEndDays;
         }
-        const maxSlots = maxDay + 1;
-        const safeCount = Math.min(count, maxSlots);
+        const maxStartSlots = latestStartDay + 1;
+        const safeCount = Math.min(count, maxStartSlots);
         const modeExponent = {
           level: 1,
           frontloaded: 0.65,
@@ -928,7 +929,7 @@
           mildHockey: 0.35,
         };
         const exponent = modeExponent[mode] ?? 1;
-        const step = maxDay / (safeCount - 1);
+        const step = latestStartDay / (safeCount - 1);
         const rawTargets = [];
         for (let i = 0; i < safeCount; i += 1) {
           const base = i * step;
@@ -937,25 +938,30 @@
           } else {
             const normalized = i / (safeCount - 1);
             const skewed = Math.pow(normalized, exponent);
-            rawTargets.push(skewed * maxDay);
+            rawTargets.push(skewed * latestStartDay);
           }
         }
+        const startDays = [];
         for (let i = 0; i < safeCount; i += 1) {
           const minSlot = i;
-          const maxSlot = maxDay - (safeCount - 1 - i);
+          const maxSlot = latestStartDay - (safeCount - 1 - i);
           let candidate = Math.round(rawTargets[i]);
           if (i > 0) {
-            candidate = Math.max(candidate, endDays[i - 1] + 1);
+            candidate = Math.max(candidate, startDays[i - 1] + 1);
           }
-          endDays.push(clamp(candidate, minSlot, maxSlot));
+          startDays.push(clamp(candidate, minSlot, maxSlot));
         }
-        endDays[0] = 0;
-        endDays[safeCount - 1] = maxDay;
+        startDays[0] = 0;
+        startDays[safeCount - 1] = latestStartDay;
+        startDays.forEach((startDay) => {
+          plannedEndDays.push(getEndDayForStart(startDay, "normal"));
+        });
         if (safeCount < count) {
-          const fill = Array.from({ length: count - safeCount }, () => maxDay);
-          endDays.push(...fill);
+          const latestEndDay = getEndDayForStart(latestStartDay, "normal");
+          const fill = Array.from({ length: count - safeCount }, () => latestEndDay);
+          plannedEndDays.push(...fill);
         }
-        return endDays;
+        return plannedEndDays;
       };
 
       const splitSegments = (workDays) => {
