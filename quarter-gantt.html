@@ -211,7 +211,7 @@
     }
     .week-row {
       display: grid;
-      grid-template-columns: repeat(13, minmax(0, 1fr));
+      grid-template-columns: repeat(var(--timeline-columns, 13), minmax(0, 1fr));
       gap: 0;
     }
     .week-cell {
@@ -248,23 +248,24 @@
     }
     .timeline {
       display: grid;
-      grid-template-columns: repeat(91, minmax(0, 1fr));
+      grid-template-columns: repeat(var(--timeline-columns, 91), minmax(0, 1fr));
       position: relative;
       gap: 0;
       min-height: 20px;
     }
-    .day-cell {
+    .shift-cell {
       border-right: 1px solid #1f2837;
       border-bottom: 1px solid #1b2331;
       background: var(--panel);
       grid-row: 1;
       position: relative;
       overflow: hidden;
+      min-width: 0;
     }
-    .day-cell.weekend {
-      background: var(--weekend);
+    .shift-cell[data-shift-in-day="1"] {
+      border-left: 1px solid rgba(84, 214, 141, 0.2);
     }
-    .day-cell .shift-indicator {
+    .shift-cell .shift-indicator {
       position: absolute;
       left: 2px;
       right: 2px;
@@ -364,6 +365,19 @@
       text-align: center;
       font-weight: 600;
       color: var(--dark-blue);
+      appearance: textfield;
+      -moz-appearance: textfield;
+    }
+    .mini-cell input::-webkit-outer-spin-button,
+    .mini-cell input::-webkit-inner-spin-button,
+    .field input[type="number"]::-webkit-outer-spin-button,
+    .field input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    .field input[type="number"] {
+      appearance: textfield;
+      -moz-appearance: textfield;
     }
     .mini-cell input:focus {
       outline: none;
@@ -669,8 +683,8 @@
       </div>
         <div class="legend">
         <div class="chip"><span class="swatch"></span> Staffing intensity (light → dark)</div>
-        <div class="chip"><span class="swatch weekend"></span> Calendar days in the quarter</div>
-        <div class="chip"><span class="swatch" style="background:rgba(212,222,242,0.45);height:6px;border-radius:999px"></span> Subtle marker = number of shifts scheduled that day</div>
+        <div class="chip"><span class="swatch weekend"></span> Shift slots from the weekly schedule</div>
+        <div class="chip"><span class="swatch" style="background:rgba(212,222,242,0.45);height:6px;border-radius:999px"></span> Marker = first shift in each day</div>
       </div>
       <section class="gantt-wrapper">
         <div class="gantt-header">
@@ -678,8 +692,8 @@
           <div class="week-row" id="weekHeader"></div>
         </div>
         <div id="ganttBody"></div>
-        <div class="instructions">Drag a sequence bar to reschedule its start day. All calendar days are available and wrap around to the new quarter start if needed.</div>
-        <div class="footer-note">Quarter view: 13 weeks / 91 days.</div>
+        <div class="instructions">Drag a sequence bar to reschedule its start shift. Shift slots are derived only from the weekly shift schedule and stay fixed across the quarter.</div>
+        <div class="footer-note">Quarter view: 13 weeks with shift slots repeated from the archetype week.</div>
       </section>
     </details>
 
@@ -771,8 +785,8 @@
       const chartTooltip = byId("chartTooltip");
       const dailyMetricsBody = byId("dailyMetricsBody");
 
-      let currentStartDays = [];
-      let endDays = [];
+      let currentStartShiftPositions = [];
+      let startShiftPositions = [];
       let productStaffingType = [];
       let parallelStaff = {
         normal: { critical: [], parallel: [] },
@@ -831,96 +845,89 @@
 
       const getSequenceStaff = (type = "normal") => getSequenceShiftTotals(type);
 
-      const buildCalendarSequence = (startDay, type = "normal") => {
+      const buildQuarterShiftSchedule = () => {
+        const shifts = [];
+        const dayRanges = [];
+        let shiftIndex = 0;
+        for (let day = 0; day < rangeDays; day += 1) {
+          const shiftsForDay = getShiftsForDay(day);
+          const startShiftIndex = shiftIndex;
+          for (let shiftInDay = 0; shiftInDay < shiftsForDay; shiftInDay += 1) {
+            shifts.push({
+              shiftIndex,
+              day,
+              week: Math.floor(day / 7),
+              shiftInDay,
+              shiftsForDay,
+            });
+            shiftIndex += 1;
+          }
+          dayRanges.push({ day, startShiftIndex, shiftCount: shiftsForDay });
+        }
+        return { shifts, dayRanges, totalShifts: shifts.length };
+      };
+
+      const getQuarterShiftSchedule = () => buildQuarterShiftSchedule();
+
+      const buildShiftSequence = (startShiftIndex, type = "normal") => {
         const shiftSlots = getSequenceShiftSlots(type);
-        const calendarDays = [];
-        const activeDays = [];
-        let slotIndex = 0;
-        let day = startDay;
-        let guard = 0;
-
-        while (slotIndex < shiftSlots.length && guard < rangeDays * 3) {
-          const shifts = getShiftsForDay(day);
-          let staffing = 0;
-          let consumed = 0;
-          for (let s = 0; s < shifts && slotIndex < shiftSlots.length; s += 1) {
-            staffing += shiftSlots[slotIndex] || 0;
-            slotIndex += 1;
-            consumed += 1;
+        const quarterSchedule = getQuarterShiftSchedule();
+        const boundedStart = clamp(startShiftIndex, 0, Math.max(quarterSchedule.totalShifts - shiftSlots.length, 0));
+        const sequenceShifts = shiftSlots.map((staffing, offset) => {
+          const shiftMeta = quarterSchedule.shifts[boundedStart + offset];
+          return {
+            shiftIndex: boundedStart + offset,
+            staffing,
+            ...shiftMeta,
+          };
+        });
+        const dailyMap = new Map();
+        sequenceShifts.forEach((entry) => {
+          if (!dailyMap.has(entry.day)) {
+            dailyMap.set(entry.day, { day: entry.day, staffing: 0, shifts: entry.shiftsForDay, consumed: 0 });
           }
-          calendarDays.push({ day, staffing, shifts, consumed });
-          if (consumed > 0) {
-            activeDays.push(day);
-          }
-          day = (day + 1) % rangeDays;
-          guard += 1;
-        }
-
-        if (!calendarDays.length) {
-          calendarDays.push({ day: startDay, staffing: 0, shifts: getShiftsForDay(startDay), consumed: 0 });
-        }
-
+          const bucket = dailyMap.get(entry.day);
+          bucket.staffing += entry.staffing;
+          bucket.consumed += 1;
+        });
+        const calendarDays = Array.from(dailyMap.values());
         return {
           shiftSlots,
+          sequenceShifts,
           calendarDays,
-          activeDays,
-          endDay: calendarDays[calendarDays.length - 1].day,
+          activeDays: calendarDays.map(({ day }) => day),
+          startShiftIndex: boundedStart,
+          endShiftIndex: Math.max(boundedStart + shiftSlots.length - 1, boundedStart),
+          endDay: calendarDays.length ? calendarDays[calendarDays.length - 1].day : 0,
         };
       };
 
-      const lastWorkingDay = () => {
-        let day = rangeDays - 1;
-        let guard = 0;
-        while (isWeekend(day) && guard < rangeDays) {
-          day = (day - 1 + rangeDays) % rangeDays;
-          guard += 1;
-        }
-        return day;
+      const getLatestStartShiftIndex = (type = "normal") => {
+        const totalShifts = getQuarterShiftSchedule().totalShifts;
+        const sequenceLength = getSequenceShiftSlots(type).length;
+        return Math.max(totalShifts - sequenceLength, 0);
       };
 
-      const startDayForEnd = (endDay, type = "normal") => {
-        const remainingSlotsInitial = getSequenceShiftSlots(type).length;
-        let remainingSlots = remainingSlotsInitial;
-        let day = endDay;
-        let startDay = endDay;
-        let guard = 0;
-        while (remainingSlots > 0 && guard < rangeDays * 3) {
-          const shifts = getShiftsForDay(day);
-          if (shifts > 0) {
-            remainingSlots -= shifts;
-            startDay = day;
-          }
-          day = (day - 1 + rangeDays) % rangeDays;
-          guard += 1;
-        }
-        return adjustToWeekday(startDay);
-      };
+      const buildWorkDays = (startShiftIndex, type = "normal") => buildShiftSequence(startShiftIndex, type).activeDays;
 
-      const getLatestStartDay = (type = "normal") => startDayForEnd(lastWorkingDay(), type);
-
-      const getEndDayForStart = (startDay, type = "normal") => buildCalendarSequence(startDay, type).endDay;
-
-      const buildWorkDays = (startDay, type = "normal") => buildCalendarSequence(startDay, type).activeDays;
-
-      const getSequenceCalendarDays = (type = "normal") => buildCalendarSequence(0, type).calendarDays.length;
+      const getSequenceCalendarDays = (type = "normal") => buildShiftSequence(0, type).calendarDays.length;
 
       const getTuckDays = (calendarDays) => Math.max(rangeDays - Math.max(calendarDays, 0), 0);
 
       const getWorkdayIndices = (maxDay) =>
         Array.from({ length: maxDay + 1 }, (_, index) => index);
 
-      const buildEndDays = (count, mode) => {
-        // Distribute products by start day first so every row stays aligned to the shared quarter calendar.
-        const plannedEndDays = [];
+      const buildStartShiftPositions = (count, mode) => {
+        const plannedStarts = [];
         if (count <= 0) {
-          return plannedEndDays;
+          return plannedStarts;
         }
-        const latestStartDay = getLatestStartDay("normal");
+        const latestStartShiftIndex = getLatestStartShiftIndex("normal");
         if (count === 1) {
-          plannedEndDays.push(getEndDayForStart(0, "normal"));
-          return plannedEndDays;
+          plannedStarts.push(0);
+          return plannedStarts;
         }
-        const maxStartSlots = latestStartDay + 1;
+        const maxStartSlots = latestStartShiftIndex + 1;
         const safeCount = Math.min(count, maxStartSlots);
         const modeExponent = {
           level: 1,
@@ -929,53 +936,43 @@
           mildHockey: 0.35,
         };
         const exponent = modeExponent[mode] ?? 1;
-        const step = latestStartDay / (safeCount - 1);
+        const step = latestStartShiftIndex / (safeCount - 1);
         const rawTargets = [];
         for (let i = 0; i < safeCount; i += 1) {
-          const base = i * step;
           if (exponent === 1) {
-            rawTargets.push(base);
+            rawTargets.push(i * step);
           } else {
             const normalized = i / (safeCount - 1);
-            const skewed = Math.pow(normalized, exponent);
-            rawTargets.push(skewed * latestStartDay);
+            rawTargets.push(Math.pow(normalized, exponent) * latestStartShiftIndex);
           }
         }
-        const startDays = [];
         for (let i = 0; i < safeCount; i += 1) {
           const minSlot = i;
-          const maxSlot = latestStartDay - (safeCount - 1 - i);
+          const maxSlot = latestStartShiftIndex - (safeCount - 1 - i);
           let candidate = Math.round(rawTargets[i]);
           if (i > 0) {
-            candidate = Math.max(candidate, startDays[i - 1] + 1);
+            candidate = Math.max(candidate, plannedStarts[i - 1] + 1);
           }
-          startDays.push(clamp(candidate, minSlot, maxSlot));
+          plannedStarts.push(clamp(candidate, minSlot, maxSlot));
         }
-        startDays[0] = 0;
-        startDays[safeCount - 1] = latestStartDay;
-        startDays.forEach((startDay) => {
-          plannedEndDays.push(getEndDayForStart(startDay, "normal"));
-        });
+        plannedStarts[0] = 0;
+        plannedStarts[safeCount - 1] = latestStartShiftIndex;
         if (safeCount < count) {
-          const latestEndDay = getEndDayForStart(latestStartDay, "normal");
-          const fill = Array.from({ length: count - safeCount }, () => latestEndDay);
-          plannedEndDays.push(...fill);
+          plannedStarts.push(...Array.from({ length: count - safeCount }, () => latestStartShiftIndex));
         }
-        return plannedEndDays;
+        return plannedStarts;
       };
 
-      const splitSegments = (workDays) => {
+      const splitSegments = (indices) => {
         const segments = [];
-        if (!workDays.length) {
+        if (!indices.length) {
           return segments;
         }
-        let segmentStart = workDays[0];
-        let prev = workDays[0];
-        for (let i = 1; i < workDays.length; i += 1) {
-          const current = workDays[i];
-          const expected = (prev + 1) % rangeDays;
-          const wrapped = prev === rangeDays - 1 && current === 0;
-          if (current !== expected || wrapped) {
+        let segmentStart = indices[0];
+        let prev = indices[0];
+        for (let i = 1; i < indices.length; i += 1) {
+          const current = indices[i];
+          if (current !== prev + 1) {
             segments.push({ start: segmentStart, end: prev });
             segmentStart = current;
           }
@@ -1083,18 +1080,24 @@
       };
 
       const renderWeekHeader = () => {
+        const quarterSchedule = getQuarterShiftSchedule();
         weekHeader.innerHTML = "";
+        weekHeader.style.setProperty("--timeline-columns", String(Math.max(quarterSchedule.totalShifts, 1)));
         for (let w = 0; w < weeks; w += 1) {
+          const shiftsInWeek = quarterSchedule.dayRanges
+            .filter(({ day }) => Math.floor(day / 7) === w)
+            .reduce((sum, { shiftCount }) => sum + shiftCount, 0);
           const cell = document.createElement("div");
           cell.className = "week-cell";
-          cell.textContent = `W${w + 1}`;
+          cell.textContent = `W${w + 1} · ${shiftsInWeek} shifts`;
+          cell.style.gridColumn = `span ${Math.max(shiftsInWeek, 1)}`;
           weekHeader.appendChild(cell);
         }
       };
 
       const getMaxStaffValue = () => {
-        const normal = buildCalendarSequence(0, "normal").calendarDays.map(({ staffing }) => staffing);
-        const slow = buildCalendarSequence(0, "slow").calendarDays.map(({ staffing }) => staffing);
+        const normal = buildShiftSequence(0, "normal").calendarDays.map(({ staffing }) => staffing);
+        const slow = buildShiftSequence(0, "slow").calendarDays.map(({ staffing }) => staffing);
         return Math.max(...normal, ...slow, 1);
       };
 
@@ -1135,7 +1138,7 @@
           cycleTimeNormal: cycleTimeNormalInput.value,
           cycleTimeSlow: cycleTimeSlowInput.value,
           fteFactor: fteFactorInput.value,
-          endDays,
+          startShiftPositions,
           productStaffingType,
           parallelStaff,
           weeklyShiftCounts,
@@ -1153,7 +1156,10 @@
           if (state.cycleTimeNormal != null) cycleTimeNormalInput.value = state.cycleTimeNormal;
           if (state.cycleTimeSlow != null) cycleTimeSlowInput.value = state.cycleTimeSlow;
           if (state.fteFactor != null) fteFactorInput.value = state.fteFactor;
-          if (Array.isArray(state.endDays)) endDays = state.endDays;
+          if (Array.isArray(state.startShiftPositions)) startShiftPositions = state.startShiftPositions;
+          else if (Array.isArray(state.endDays)) {
+            startShiftPositions = buildStartShiftPositions(state.endDays.length, state.planningMode || planningModeInput.value);
+          }
           if (Array.isArray(state.productStaffingType)) productStaffingType = state.productStaffingType;
           if (Array.isArray(state.weeklyShiftCounts)) {
             if (Array.isArray(state.weeklyShiftCounts[0])) {
@@ -1327,16 +1333,17 @@
         const dailyActive = Array.from({ length: rangeDays }, () => 0);
         const maxStaffValue = getMaxStaffValue();
 
-        if (endDays.length !== productCount) {
-          endDays = buildEndDays(productCount, planningModeInput.value);
+        if (startShiftPositions.length !== productCount) {
+          startShiftPositions = buildStartShiftPositions(productCount, planningModeInput.value);
         }
         if (productStaffingType.length !== productCount) {
           productStaffingType = Array.from({ length: productCount }, (_, index) =>
             productStaffingType[index] || "normal"
           );
         }
-        currentStartDays = Array.from({ length: productCount }, () => 0);
+        currentStartShiftPositions = Array.from({ length: productCount }, () => 0);
 
+        renderWeekHeader();
         ganttBody.innerHTML = "";
         for (let i = 0; i < productCount; i += 1) {
           const row = document.createElement("div");
@@ -1362,29 +1369,26 @@
           timeline.className = "timeline";
           timeline.dataset.productIndex = String(i);
 
-          for (let d = 0; d < rangeDays; d += 1) {
+          const quarterSchedule = getQuarterShiftSchedule();
+          timeline.style.setProperty("--timeline-columns", String(Math.max(quarterSchedule.totalShifts, 1)));
+          quarterSchedule.shifts.forEach((shiftMeta) => {
             const cell = document.createElement("div");
-            cell.className = `day-cell${isWeekend(d) ? " weekend" : ""}`;
-            const dow = getDow(d);
-            const shifts = getShiftsForDay(d);
-            cell.title = `${dayLabels[dow]} · Day ${d + 1} · ${shifts} shift${shifts === 1 ? "" : "s"}`;
+            cell.className = "shift-cell";
+            cell.dataset.shiftInDay = String(shiftMeta.shiftInDay);
+            cell.title = `${dayLabels[getDow(shiftMeta.day)]} · Day ${shiftMeta.day + 1} · Shift ${shiftMeta.shiftInDay + 1} of ${shiftMeta.shiftsForDay}`;
             const shiftIndicator = document.createElement("div");
             shiftIndicator.className = "shift-indicator";
-            shiftIndicator.style.opacity = String(shifts / 2);
-            shiftIndicator.style.width = `${Math.max(18, shifts * 42)}%`;
+            shiftIndicator.style.opacity = shiftMeta.shiftInDay === 0 ? "1" : "0";
             cell.appendChild(shiftIndicator);
             timeline.appendChild(cell);
-          }
+          });
 
           const staffingType = productStaffingType[i] || "normal";
           const sequenceStaff =
             staffingType === "slow" ? sequenceStaffSlow : sequenceStaffNormal;
-          const plannedEndDay = endDays[i] ?? lastWorkingDay();
-          const startDay = adjustToWeekday(
-            startDayForEnd(plannedEndDay, staffingType)
-          );
-          currentStartDays[i] = startDay;
-          const calendarSequence = buildCalendarSequence(startDay, staffingType);
+          const startShiftIndex = clamp(startShiftPositions[i] ?? 0, 0, getLatestStartShiftIndex(staffingType));
+          currentStartShiftPositions[i] = startShiftIndex;
+          const calendarSequence = buildShiftSequence(startShiftIndex, staffingType);
           calendarSequence.calendarDays.forEach(({ day, staffing, consumed }) => {
             if (consumed > 0) {
               dailyActive[day] += 1;
@@ -1392,10 +1396,10 @@
             dailyStaff[day] += staffing;
           });
           const sequenceIndexByDay = new Map(
-            calendarSequence.calendarDays.map(({ day }, idx) => [day, idx])
+            calendarSequence.sequenceShifts.map(({ shiftIndex }, idx) => [shiftIndex, idx])
           );
 
-          const segments = splitSegments(calendarSequence.calendarDays.map(({ day }) => day));
+          const segments = splitSegments(calendarSequence.sequenceShifts.map(({ shiftIndex }) => shiftIndex));
           segments.forEach((segment, segmentIndex) => {
             const bar = document.createElement("div");
             bar.className = "sequence-bar";
@@ -1403,10 +1407,12 @@
             bar.dataset.segmentIndex = String(segmentIndex);
             bar.style.gridColumnStart = segment.start + 1;
             bar.style.gridColumnEnd = segment.end + 2;
-            bar.title = `Start day ${segment.start + 1}, end day ${segment.end + 1}`;
+            const startMeta = getQuarterShiftSchedule().shifts[segment.start];
+            const endMeta = getQuarterShiftSchedule().shifts[segment.end];
+            bar.title = `Start Day ${startMeta.day + 1} Shift ${startMeta.shiftInDay + 1}, end Day ${endMeta.day + 1} Shift ${endMeta.shiftInDay + 1}`;
             const segmentLength = segment.end - segment.start + 1;
             const segmentStartIndex = sequenceIndexByDay.get(segment.start) || 0;
-            const segmentStaffing = calendarSequence.calendarDays.map(({ staffing }) => staffing);
+            const segmentStaffing = calendarSequence.sequenceShifts.map(({ staffing }) => staffing);
             bar.style.background = buildStaffGradient(
               segmentStaffing,
               segmentStartIndex,
@@ -1441,12 +1447,12 @@
         }
       };
 
-      const buildPreviewBars = (timeline, startDay, sequenceLength) => {
+      const buildPreviewBars = (timeline, startShiftIndex) => {
         const existing = timeline.querySelectorAll(".sequence-bar.preview");
         existing.forEach((el) => el.remove());
         const staffingType = productStaffingType[Number(timeline.dataset.productIndex)] || "normal";
-        const workDays = buildWorkDays(startDay, staffingType);
-        const segments = splitSegments(workDays);
+        const previewSequence = buildShiftSequence(startShiftIndex, staffingType);
+        const segments = splitSegments(previewSequence.sequenceShifts.map(({ shiftIndex }) => shiftIndex));
         segments.forEach((segment) => {
           const bar = document.createElement("div");
           bar.className = "sequence-bar preview";
@@ -1467,42 +1473,43 @@
           staffingType,
         };
         timeline.setPointerCapture(event.pointerId);
-        buildPreviewBars(timeline, currentStartDays[productIndex], sequenceStaff.length);
+        buildPreviewBars(timeline, currentStartShiftPositions[productIndex]);
       };
 
-      const getDayFromPointer = (event, timeline) => {
+      const getShiftIndexFromPointer = (event, timeline) => {
+        const totalShifts = getQuarterShiftSchedule().totalShifts;
         const rect = timeline.getBoundingClientRect();
         const offsetX = event.clientX - rect.left;
-        const dayWidth = rect.width / rangeDays;
-        const dayIndex = Math.min(rangeDays - 1, Math.max(0, Math.floor(offsetX / dayWidth)));
-        return dayIndex;
+        const shiftWidth = rect.width / Math.max(totalShifts, 1);
+        const shiftIndex = Math.min(totalShifts - 1, Math.max(0, Math.floor(offsetX / Math.max(shiftWidth, 1))));
+        return shiftIndex;
       };
 
       const handlePointerMove = (event) => {
         if (!dragging) {
           return;
         }
-        const dayIndex = getDayFromPointer(event, dragging.timeline);
-        const startDay = adjustToWeekday(dayIndex);
-        buildPreviewBars(dragging.timeline, startDay, dragging.sequenceLength);
+        const shiftIndex = getShiftIndexFromPointer(event, dragging.timeline);
+        const startShiftIndex = clamp(shiftIndex, 0, getLatestStartShiftIndex(dragging.staffingType));
+        buildPreviewBars(dragging.timeline, startShiftIndex);
       };
 
       const handlePointerUp = (event) => {
         if (!dragging) {
           return;
         }
-        const dayIndex = getDayFromPointer(event, dragging.timeline);
-        const startDay = adjustToWeekday(dayIndex);
-        const endDay = getEndDayForStart(startDay, dragging.staffingType);
-        endDays[dragging.productIndex] = endDay;
+        const shiftIndex = getShiftIndexFromPointer(event, dragging.timeline);
+        const startShiftIndex = clamp(shiftIndex, 0, getLatestStartShiftIndex(dragging.staffingType));
+        startShiftPositions[dragging.productIndex] = startShiftIndex;
         dragging = null;
+        renderWeekHeader();
         renderGantt();
       };
 
       const handleInputChange = () => {
         const productCount = Number.parseInt(productCountInput.value, 10) || 0;
         const planningMode = planningModeInput.value;
-        endDays = buildEndDays(productCount, planningMode);
+        startShiftPositions = buildStartShiftPositions(productCount, planningMode);
         renderGantt();
       };
 
@@ -1520,11 +1527,11 @@
         const cycleTimeSlow = getCycleTime("slow");
         const fteFactor = Number.parseFloat(fteFactorInput.value) || 0;
         const sequenceCalendarDays = getSequenceCalendarDays("normal");
-        const latestStart = getLatestStartDay("normal");
+        const latestStart = getLatestStartShiftIndex("normal");
         const tuckDays = getTuckDays(sequenceCalendarDays);
         const tuckWeeks = (tuckDays / 7).toFixed(1);
-        const startWindowDays = latestStart + 1;
-        const startWindowWeeks = (startWindowDays / 7).toFixed(1);
+        const startWindowShifts = latestStart + 1;
+        const startWindowWeeks = (startWindowShifts / Math.max(getQuarterShiftSchedule().totalShifts / weeks, 1)).toFixed(1);
         const peakDayIndex = dailyStaff.indexOf(maxStaff);
         const peakDayNumber = peakDayIndex >= 0 ? peakDayIndex + 1 : 1;
         const peakDow = dayLabels[getDow(peakDayIndex >= 0 ? peakDayIndex : 0)];
@@ -1570,7 +1577,7 @@
             <li><strong>Cycle time (normal):</strong> ${cycleTimeNormal} shifts (${sequenceCalendarDays} calendar days under the current shift schedule)</li>
             <li><strong>Cycle time (slow):</strong> ${cycleTimeSlow} shifts</li>
             <li><strong>Tuck time:</strong> ${tuckDays} days (${tuckWeeks} weeks) = 13 weeks − cycle time</li>
-            <li><strong>Start window used:</strong> first ${startWindowDays} days (${startWindowWeeks} weeks)</li>
+            <li><strong>Start window used:</strong> first ${startWindowShifts} shift slots (${startWindowWeeks} equivalent weeks)</li>
             <li><strong>Planning distribution:</strong> ${planningLabels[planningMode] || planningMode}</li>
             <li><strong>Products required this quarter:</strong> ${productCount}</li>
           </ul>
@@ -1578,7 +1585,6 @@
       };
 
       document.addEventListener("DOMContentLoaded", () => {
-        renderWeekHeader();
         initializeParallelStaff();
         loadState();
         renderWeeklyShiftSchedule();
@@ -1589,7 +1595,7 @@
         planningModeInput.addEventListener("change", handleInputChange);
         cycleTimeNormalInput.addEventListener("change", () => {
           ensureParallelLength("normal", getCycleTime("normal"));
-          endDays = buildEndDays(
+          startShiftPositions = buildStartShiftPositions(
             Number.parseInt(productCountInput.value, 10) || 0,
             planningModeInput.value
           );
@@ -1597,7 +1603,7 @@
         });
         cycleTimeSlowInput.addEventListener("change", () => {
           ensureParallelLength("slow", getCycleTime("slow"));
-          endDays = buildEndDays(
+          startShiftPositions = buildStartShiftPositions(
             Number.parseInt(productCountInput.value, 10) || 0,
             planningModeInput.value
           );
