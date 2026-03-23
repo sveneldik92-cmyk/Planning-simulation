@@ -17,6 +17,7 @@
       --bar: #8ab4f8;
       --bar-light: #5f8bd6;
       --accent: #54d68d;
+      --shift-indicator: rgba(212, 222, 242, 0.18);
     }
     * {
       box-sizing: border-box;
@@ -257,9 +258,21 @@
       border-bottom: 1px solid #1b2331;
       background: var(--panel);
       grid-row: 1;
+      position: relative;
+      overflow: hidden;
     }
     .day-cell.weekend {
       background: var(--weekend);
+    }
+    .day-cell .shift-indicator {
+      position: absolute;
+      left: 2px;
+      right: 2px;
+      bottom: 2px;
+      height: 3px;
+      border-radius: 999px;
+      background: var(--shift-indicator);
+      opacity: 0;
     }
     .sequence-bar {
       grid-row: 1 / span 1;
@@ -301,6 +314,11 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
+    }
+    .weekly-schedule {
+      display: grid;
+      gap: 8px;
+      overflow-x: auto;
     }
     .parallel-panel h3 {
       margin: 0;
@@ -353,6 +371,19 @@
     .mini-note {
       font-size: 12px;
       color: #9aa5b6;
+    }
+    .schedule-summary {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: #9aa5b6;
+    }
+    .schedule-chip {
+      border: 1px solid #2a354a;
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: rgba(255,255,255,0.02);
     }
     .mini-group-label {
       font-size: 11px;
@@ -555,14 +586,14 @@
           <input id="productCount" type="number" min="1" value="21" />
         </div>
         <div class="field">
-          <label for="cycleTimeNormal">Cycle time (normal days)</label>
+          <label for="cycleTimeNormal">Cycle time (normal process days)</label>
           <input id="cycleTimeNormal" type="number" min="1" value="10" />
-          <small>Defines how many calendar days the normal staffing grid shows.</small>
+          <small>Defines how many early/late shift pairs the normal staffing grid shows.</small>
         </div>
         <div class="field">
-          <label for="cycleTimeSlow">Cycle time (slow days)</label>
+          <label for="cycleTimeSlow">Cycle time (slow process days)</label>
           <input id="cycleTimeSlow" type="number" min="1" value="15" />
-          <small>Defines how many calendar days the slow staffing grid shows.</small>
+          <small>Defines how many early/late shift pairs the slow staffing grid shows.</small>
         </div>
         <div class="field">
           <label for="fteFactor">FTE conversion (per person)</label>
@@ -577,7 +608,7 @@
       <section class="parallel-panel">
         <p class="note">Type a value and your cursor advances to the next cell automatically.</p>
         <div class="mini-gantt" id="parallelGanttNormal"></div>
-        <div class="mini-note">Enter separate early-shift and late-shift staffing per day. The Gantt bar color uses the average of both shifts for each day.</div>
+        <div class="mini-note">Enter separate early-shift and late-shift staffing per process day. The planner now distributes that work across the quarter using the weekly shift schedule.</div>
       </section>
     </details>
 
@@ -586,7 +617,18 @@
       <section class="parallel-panel">
         <p class="note">Type a value and your cursor advances to the next cell automatically.</p>
         <div class="mini-gantt" id="parallelGanttSlow"></div>
-        <div class="mini-note">Use lower early/late staffing inputs with a longer cycle time to model a slower delivery pace.</div>
+        <div class="mini-note">Use lower early/late staffing inputs with a longer process cycle time to model a slower delivery pace.</div>
+      </section>
+    </details>
+
+
+    <details class="section" open>
+      <summary>Weekly shift schedule</summary>
+      <section class="parallel-panel">
+        <p class="note">Set how many shifts are worked on each day of each week. The planner uses this schedule to spread early and late staffing across the actual quarter calendar.</p>
+        <div class="weekly-schedule" id="weeklyShiftSchedule"></div>
+        <div class="schedule-summary" id="shiftScheduleSummary"></div>
+        <div class="mini-note">0 = no work, 1 = early shift only, 2 = early + late shift. Subtle markers in the Gantt show the daily shift intensity.</div>
       </section>
     </details>
 
@@ -627,7 +669,8 @@
       </div>
         <div class="legend">
         <div class="chip"><span class="swatch"></span> Staffing intensity (light → dark)</div>
-        <div class="chip"><span class="swatch weekend"></span> All days counted (7-day weeks)</div>
+        <div class="chip"><span class="swatch weekend"></span> Calendar days in the quarter</div>
+        <div class="chip"><span class="swatch" style="background:rgba(212,222,242,0.45);height:6px;border-radius:999px"></span> Subtle marker = number of shifts scheduled that day</div>
       </div>
       <section class="gantt-wrapper">
         <div class="gantt-header">
@@ -645,7 +688,7 @@
       <section class="analytics-panel">
         <div class="chart-card">
           <h3>Daily FTE and WIP trend</h3>
-          <p>Hover over the chart to inspect the staffing totals, FTE conversion, and WIP for each day in the quarter.</p>
+          <p>Hover over the chart to inspect the staffing totals, scheduled shifts, FTE conversion, and WIP for each day in the quarter.</p>
           <div class="chart-wrap" id="dailyChartWrap">
             <svg class="daily-chart" id="dailyChart" viewBox="0 0 1200 280" preserveAspectRatio="none"></svg>
             <div class="chart-tooltip" id="chartTooltip"></div>
@@ -665,6 +708,7 @@
                   <th>Day</th>
                   <th>Week</th>
                   <th>Weekday</th>
+                  <th>Shifts</th>
                   <th>Staffing</th>
                   <th>FTE</th>
                   <th>WIP</th>
@@ -703,7 +747,8 @@
       const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       const defaultEarlyStaffing = 6;
       const defaultLateStaffing = 2;
-      const storageKey = "quarter-planning-state-v2";
+      const defaultDailyShifts = 2;
+      const storageKey = "quarter-planning-state-v3";
 
       const byId = (id) => document.getElementById(id);
       const productCountInput = byId("productCount");
@@ -715,6 +760,8 @@
       const weekHeader = byId("weekHeader");
       const parallelGanttNormal = byId("parallelGanttNormal");
       const parallelGanttSlow = byId("parallelGanttSlow");
+      const weeklyShiftSchedule = byId("weeklyShiftSchedule");
+      const shiftScheduleSummary = byId("shiftScheduleSummary");
       const kpiCycle = byId("kpiCycle");
       const kpiFte = byId("kpiFte");
       const kpiWip = byId("kpiWip");
@@ -731,11 +778,18 @@
         normal: { early: [], late: [] },
         slow: { early: [], late: [] },
       };
+      let weeklyShiftCounts = Array.from({ length: weeks }, () => Array.from({ length: 7 }, () => defaultDailyShifts));
       let dragging = null;
 
       const getDow = (dayIndex) => (quarterStartDow + dayIndex) % 7;
 
       const isWeekend = () => false;
+
+      const getShiftsForDay = (dayIndex) => {
+        const weekIndex = Math.floor(dayIndex / 7);
+        const dayOfWeek = getDow(dayIndex);
+        return clamp(weeklyShiftCounts[weekIndex]?.[dayOfWeek] ?? defaultDailyShifts, 0, 2);
+      };
 
       const adjustToWeekday = (dayIndex) => {
         let day = dayIndex;
@@ -777,7 +831,55 @@
         });
       };
 
+      const getSequenceShiftSlots = (type = "normal") => {
+        const length = getCycleTime(type);
+        ensureParallelLength(type, length);
+        const slots = [];
+        for (let i = 0; i < length; i += 1) {
+          slots.push(parallelStaff[type].early[i] || 0);
+          slots.push(parallelStaff[type].late[i] || 0);
+        }
+        return slots;
+      };
+
       const getSequenceStaff = (type = "normal") => getShiftAverages(type);
+
+      const buildCalendarSequence = (startDay, type = "normal") => {
+        const shiftSlots = getSequenceShiftSlots(type);
+        const calendarDays = [];
+        const activeDays = [];
+        let slotIndex = 0;
+        let day = startDay;
+        let guard = 0;
+
+        while (slotIndex < shiftSlots.length && guard < rangeDays * 3) {
+          const shifts = getShiftsForDay(day);
+          let staffing = 0;
+          let consumed = 0;
+          for (let s = 0; s < shifts && slotIndex < shiftSlots.length; s += 1) {
+            staffing += shiftSlots[slotIndex] || 0;
+            slotIndex += 1;
+            consumed += 1;
+          }
+          calendarDays.push({ day, staffing, shifts, consumed });
+          if (consumed > 0) {
+            activeDays.push(day);
+          }
+          day = (day + 1) % rangeDays;
+          guard += 1;
+        }
+
+        if (!calendarDays.length) {
+          calendarDays.push({ day: startDay, staffing: 0, shifts: getShiftsForDay(startDay), consumed: 0 });
+        }
+
+        return {
+          shiftSlots,
+          calendarDays,
+          activeDays,
+          endDay: calendarDays[calendarDays.length - 1].day,
+        };
+      };
 
       const lastWorkingDay = () => {
         let day = rangeDays - 1;
@@ -789,46 +891,33 @@
         return day;
       };
 
-      const startDayForEnd = (endDay, sequenceLength) => {
+      const startDayForEnd = (endDay, type = "normal") => {
+        const remainingSlotsInitial = getSequenceShiftSlots(type).length;
+        let remainingSlots = remainingSlotsInitial;
         let day = endDay;
-        let remaining = Math.max(sequenceLength - 1, 0);
+        let startDay = endDay;
         let guard = 0;
-        while (remaining > 0 && guard < rangeDays * 2) {
-          day = (day - 1 + rangeDays) % rangeDays;
-          if (!isWeekend(day)) {
-            remaining -= 1;
+        while (remainingSlots > 0 && guard < rangeDays * 3) {
+          const shifts = getShiftsForDay(day);
+          if (shifts > 0) {
+            remainingSlots -= shifts;
+            startDay = day;
           }
+          day = (day - 1 + rangeDays) % rangeDays;
           guard += 1;
         }
-        return adjustToWeekday(day);
+        return adjustToWeekday(startDay);
       };
 
-      const getLatestStartDay = (sequenceLength) => startDayForEnd(lastWorkingDay(), sequenceLength);
+      const getLatestStartDay = (type = "normal") => startDayForEnd(lastWorkingDay(), type);
 
-      const getEndDayForStart = (startDay, sequenceLength) => {
-        if (sequenceLength <= 0) {
-          return startDay;
-        }
-        return (startDay + sequenceLength - 1 + rangeDays * 2) % rangeDays;
-      };
+      const getEndDayForStart = (startDay, type = "normal") => buildCalendarSequence(startDay, type).endDay;
 
-      const buildWorkDays = (startDay, sequenceLength) => {
-        const workDays = [];
-        let day = startDay;
-        let idx = 0;
-        let guard = 0;
-        while (idx < sequenceLength && guard < rangeDays * 2) {
-          workDays.push(day);
-          idx += 1;
-          day = (day + 1) % rangeDays;
-          guard += 1;
-        }
-        return workDays;
-      };
+      const buildWorkDays = (startDay, type = "normal") => buildCalendarSequence(startDay, type).activeDays;
 
-      const getSequenceCalendarDays = (sequenceLength) => Math.max(sequenceLength, 0);
+      const getSequenceCalendarDays = (type = "normal") => buildCalendarSequence(0, type).calendarDays.length;
 
-      const getTuckDays = (sequenceLength) => Math.max(rangeDays - getSequenceCalendarDays(sequenceLength), 0);
+      const getTuckDays = (calendarDays) => Math.max(rangeDays - Math.max(calendarDays, 0), 0);
 
       const getWorkdayIndices = (maxDay) =>
         Array.from({ length: maxDay + 1 }, (_, index) => index);
@@ -907,7 +996,7 @@
         const maxStaff = Math.max(...dailyStaff, 0);
         const maxWip = Math.max(...dailyActive, 0);
         const fteFactor = Number.parseFloat(fteFactorInput.value) || 0;
-        kpiCycle.textContent = `Normal: ${sequenceStaffNormal.length} days · Slow: ${sequenceStaffSlow.length} days`;
+        kpiCycle.textContent = `Normal: ${sequenceStaffNormal.length} process days · Slow: ${sequenceStaffSlow.length} process days`;
         kpiFte.textContent = `${(maxStaff * fteFactor).toFixed(1)} FTE`;
         kpiWip.textContent = `${maxWip} sequences`;
         updateFteDeepDive(sequenceStaffNormal, sequenceStaffSlow, dailyStaff, dailyActive, maxStaff, maxWip);
@@ -962,7 +1051,7 @@
             input.value = String(parallelStaff[type][row.key][i] ?? 0);
             input.addEventListener("input", (event) => {
               parallelStaff[type][row.key][i] = Number.parseInt(input.value, 10) || 0;
-              renderGantt({ renderParallel: false });
+              renderGantt({ renderParallel: false, renderSchedule: false });
               const isDelete = event.inputType && event.inputType.startsWith("delete");
               if (!isDelete && input.value !== "") {
                 focusNextCell(rowEl, i);
@@ -1011,8 +1100,8 @@
       };
 
       const getMaxStaffValue = () => {
-        const normal = getSequenceStaff("normal");
-        const slow = getSequenceStaff("slow");
+        const normal = buildCalendarSequence(0, "normal").calendarDays.map(({ staffing }) => staffing);
+        const slow = buildCalendarSequence(0, "slow").calendarDays.map(({ staffing }) => staffing);
         return Math.max(...normal, ...slow, 1);
       };
 
@@ -1056,6 +1145,7 @@
           endDays,
           productStaffingType,
           parallelStaff,
+          weeklyShiftCounts,
         };
         localStorage.setItem(storageKey, JSON.stringify(state));
       };
@@ -1072,6 +1162,12 @@
           if (state.fteFactor != null) fteFactorInput.value = state.fteFactor;
           if (Array.isArray(state.endDays)) endDays = state.endDays;
           if (Array.isArray(state.productStaffingType)) productStaffingType = state.productStaffingType;
+          if (Array.isArray(state.weeklyShiftCounts)) {
+            weeklyShiftCounts = state.weeklyShiftCounts.map((week) => Array.isArray(week) ? week.slice(0, 7) : Array.from({ length: 7 }, () => defaultDailyShifts)).slice(0, weeks);
+            while (weeklyShiftCounts.length < weeks) {
+              weeklyShiftCounts.push(Array.from({ length: 7 }, () => defaultDailyShifts));
+            }
+          }
           if (state.parallelStaff) {
             parallelStaff = {
               normal: {
@@ -1089,6 +1185,58 @@
           console.warn("Could not restore saved planning state.", error);
           return false;
         }
+      };
+
+      const renderWeeklyShiftSchedule = () => {
+        weeklyShiftSchedule.innerHTML = "";
+        weeklyShiftSchedule.style.setProperty("--mini-days", "7");
+        const header = document.createElement("div");
+        header.className = "mini-gantt-row mini-gantt-header";
+        const headerLabel = document.createElement("div");
+        headerLabel.textContent = "Week";
+        header.appendChild(headerLabel);
+        dayLabels.slice(1).concat(dayLabels.slice(0, 1)).forEach((label) => {
+          const cell = document.createElement("div");
+          cell.textContent = label;
+          header.appendChild(cell);
+        });
+        weeklyShiftSchedule.appendChild(header);
+
+        let totalShifts = 0;
+        weeklyShiftCounts.forEach((weekValues, weekIndex) => {
+          const row = document.createElement("div");
+          row.className = "mini-gantt-row";
+          const label = document.createElement("div");
+          label.className = "mini-label";
+          label.textContent = `W${weekIndex + 1}`;
+          row.appendChild(label);
+          const orderedValues = weekValues.slice(1).concat(weekValues.slice(0, 1));
+          orderedValues.forEach((value, dayIndexMonStart) => {
+            totalShifts += value;
+            const actualDayIndex = (dayIndexMonStart + 1) % 7;
+            const cell = document.createElement("div");
+            cell.className = "mini-cell";
+            const input = document.createElement("input");
+            input.type = "number";
+            input.min = "0";
+            input.max = "2";
+            input.step = "1";
+            input.value = String(value ?? defaultDailyShifts);
+            input.addEventListener("input", () => {
+              weeklyShiftCounts[weekIndex][actualDayIndex] = clamp(Number.parseInt(input.value, 10) || 0, 0, 2);
+              renderGantt({ renderParallel: false, renderSchedule: true });
+            });
+            cell.appendChild(input);
+            row.appendChild(cell);
+          });
+          weeklyShiftSchedule.appendChild(row);
+        });
+
+        const avgPerWeek = (totalShifts / weeks).toFixed(1);
+        shiftScheduleSummary.innerHTML = `
+          <div class="schedule-chip">Total scheduled shifts: <strong>${totalShifts}</strong></div>
+          <div class="schedule-chip">Average per week: <strong>${avgPerWeek}</strong></div>
+        `;
       };
 
       const renderDailyChart = (dailyStaff, dailyActive) => {
@@ -1146,6 +1294,7 @@
             chartTooltip.innerHTML = `
               <strong>Day ${index + 1}</strong><br>
               ${dayLabels[getDow(index)]}<br>
+              Shifts: ${getShiftsForDay(index)}<br>
               Staffing: ${dailyStaff[index].toFixed(1)}<br>
               FTE: ${dailyFte[index].toFixed(1)}<br>
               WIP: ${dailyActive[index]}
@@ -1166,6 +1315,7 @@
             <td>Day ${index + 1}</td>
             <td>W${Math.floor(index / 7) + 1}</td>
             <td>${dayLabels[getDow(index)]}</td>
+            <td>${getShiftsForDay(index)}</td>
             <td>${staffValue.toFixed(1)}</td>
             <td>${(staffValue * fteFactor).toFixed(1)}</td>
             <td>${dailyActive[index]}</td>
@@ -1173,7 +1323,7 @@
         `).join('');
       };
 
-      const renderGantt = ({ renderParallel = true } = {}) => {
+      const renderGantt = ({ renderParallel = true, renderSchedule = true } = {}) => {
         const productCount = Number.parseInt(productCountInput.value, 10) || 0;
         const sequenceStaffNormal = getSequenceStaff("normal");
         const sequenceStaffSlow = getSequenceStaff("slow");
@@ -1220,7 +1370,13 @@
             const cell = document.createElement("div");
             cell.className = `day-cell${isWeekend(d) ? " weekend" : ""}`;
             const dow = getDow(d);
-            cell.title = `${dayLabels[dow]} · Day ${d + 1}`;
+            const shifts = getShiftsForDay(d);
+            cell.title = `${dayLabels[dow]} · Day ${d + 1} · ${shifts} shift${shifts === 1 ? "" : "s"}`;
+            const shiftIndicator = document.createElement("div");
+            shiftIndicator.className = "shift-indicator";
+            shiftIndicator.style.opacity = String(shifts / 2);
+            shiftIndicator.style.width = `${Math.max(18, shifts * 42)}%`;
+            cell.appendChild(shiftIndicator);
             timeline.appendChild(cell);
           }
 
@@ -1229,19 +1385,21 @@
             staffingType === "slow" ? sequenceStaffSlow : sequenceStaffNormal;
           const plannedEndDay = endDays[i] ?? lastWorkingDay();
           const startDay = adjustToWeekday(
-            startDayForEnd(plannedEndDay, sequenceStaff.length)
+            startDayForEnd(plannedEndDay, staffingType)
           );
           currentStartDays[i] = startDay;
-          const workDays = buildWorkDays(startDay, sequenceStaff.length);
-          workDays.forEach((day, idx) => {
-            dailyActive[day] += 1;
-            dailyStaff[day] += sequenceStaff[idx] || 0;
+          const calendarSequence = buildCalendarSequence(startDay, staffingType);
+          calendarSequence.calendarDays.forEach(({ day, staffing, consumed }) => {
+            if (consumed > 0) {
+              dailyActive[day] += 1;
+            }
+            dailyStaff[day] += staffing;
           });
           const sequenceIndexByDay = new Map(
-            workDays.map((day, idx) => [day, idx])
+            calendarSequence.calendarDays.map(({ day }, idx) => [day, idx])
           );
 
-          const segments = splitSegments(workDays);
+          const segments = splitSegments(calendarSequence.calendarDays.map(({ day }) => day));
           segments.forEach((segment, segmentIndex) => {
             const bar = document.createElement("div");
             bar.className = "sequence-bar";
@@ -1252,8 +1410,9 @@
             bar.title = `Start day ${segment.start + 1}, end day ${segment.end + 1}`;
             const segmentLength = segment.end - segment.start + 1;
             const segmentStartIndex = sequenceIndexByDay.get(segment.start) || 0;
+            const segmentStaffing = calendarSequence.calendarDays.map(({ staffing }) => staffing);
             bar.style.background = buildStaffGradient(
-              sequenceStaff,
+              segmentStaffing,
               segmentStartIndex,
               segmentLength,
               maxStaffValue
@@ -1281,12 +1440,16 @@
           renderParallelGantt("normal", sequenceStaffNormal.length, parallelGanttNormal);
           renderParallelGantt("slow", sequenceStaffSlow.length, parallelGanttSlow);
         }
+        if (renderSchedule) {
+          renderWeeklyShiftSchedule();
+        }
       };
 
       const buildPreviewBars = (timeline, startDay, sequenceLength) => {
         const existing = timeline.querySelectorAll(".sequence-bar.preview");
         existing.forEach((el) => el.remove());
-        const workDays = buildWorkDays(startDay, sequenceLength);
+        const staffingType = productStaffingType[Number(timeline.dataset.productIndex)] || "normal";
+        const workDays = buildWorkDays(startDay, staffingType);
         const segments = splitSegments(workDays);
         segments.forEach((segment) => {
           const bar = document.createElement("div");
@@ -1305,6 +1468,7 @@
           productIndex,
           timeline,
           sequenceLength: sequenceStaff.length,
+          staffingType,
         };
         timeline.setPointerCapture(event.pointerId);
         buildPreviewBars(timeline, currentStartDays[productIndex], sequenceStaff.length);
@@ -1333,7 +1497,7 @@
         }
         const dayIndex = getDayFromPointer(event, dragging.timeline);
         const startDay = adjustToWeekday(dayIndex);
-        const endDay = getEndDayForStart(startDay, dragging.sequenceLength);
+        const endDay = getEndDayForStart(startDay, dragging.staffingType);
         endDays[dragging.productIndex] = endDay;
         dragging = null;
         renderGantt();
@@ -1359,9 +1523,9 @@
         const cycleTimeNormal = getCycleTime("normal");
         const cycleTimeSlow = getCycleTime("slow");
         const fteFactor = Number.parseFloat(fteFactorInput.value) || 0;
-        const sequenceCalendarDays = getSequenceCalendarDays(sequenceStaffNormal.length);
-        const latestStart = getLatestStartDay(sequenceStaffNormal.length);
-        const tuckDays = getTuckDays(sequenceStaffNormal.length);
+        const sequenceCalendarDays = getSequenceCalendarDays("normal");
+        const latestStart = getLatestStartDay("normal");
+        const tuckDays = getTuckDays(sequenceCalendarDays);
         const tuckWeeks = (tuckDays / 7).toFixed(1);
         const startWindowDays = latestStart + 1;
         const startWindowWeeks = (startWindowDays / 7).toFixed(1);
@@ -1401,14 +1565,14 @@
             <li><strong>Active products on peak day:</strong> ${peakActive}</li>
             <li><strong>Average staffing per active product on peak day:</strong> ${avgStaffPerActive}</li>
             <li><strong>Peak WIP capability:</strong> ${maxWip} sequences</li>
-            <li><strong>Average staffing sequence per day (normal):</strong> [${combinedStaffNormal}]</li>
+            <li><strong>Average staffing sequence per process day (normal):</strong> [${combinedStaffNormal}]</li>
             <li><strong>Early-shift staffing by day (normal):</strong> [${earlyStaffNormal}]</li>
             <li><strong>Late-shift staffing by day (normal):</strong> [${lateStaffNormal}]</li>
-            <li><strong>Average staffing sequence per day (slow):</strong> [${combinedStaffSlow}]</li>
+            <li><strong>Average staffing sequence per process day (slow):</strong> [${combinedStaffSlow}]</li>
             <li><strong>Early-shift staffing by day (slow):</strong> [${earlyStaffSlow}]</li>
             <li><strong>Late-shift staffing by day (slow):</strong> [${lateStaffSlow}]</li>
-            <li><strong>Cycle time (normal):</strong> ${cycleTimeNormal} days (${sequenceCalendarDays} calendar days)</li>
-            <li><strong>Cycle time (slow):</strong> ${cycleTimeSlow} days</li>
+            <li><strong>Cycle time (normal):</strong> ${cycleTimeNormal} process days (${sequenceCalendarDays} calendar days under the current shift schedule)</li>
+            <li><strong>Cycle time (slow):</strong> ${cycleTimeSlow} process days</li>
             <li><strong>Tuck time:</strong> ${tuckDays} days (${tuckWeeks} weeks) = 13 weeks − cycle time</li>
             <li><strong>Start window used:</strong> first ${startWindowDays} days (${startWindowWeeks} weeks)</li>
             <li><strong>Planning distribution:</strong> ${planningLabels[planningMode] || planningMode}</li>
@@ -1421,6 +1585,7 @@
         renderWeekHeader();
         initializeParallelStaff();
         loadState();
+        renderWeeklyShiftSchedule();
         ensureParallelLength("normal", getCycleTime("normal"));
         ensureParallelLength("slow", getCycleTime("slow"));
         renderGantt();
