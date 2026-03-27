@@ -834,7 +834,7 @@
         </div>
         <div class="table-card">
           <h3>Start-date spacing across products</h3>
-          <p>Shows the day-gap between consecutive product starts (P2−P1, P3−P2, …) so you can compare start cadence versus FTE/WIP behavior.</p>
+          <p>Shows the day and shift gaps between consecutive product starts (P2−P1, P3−P2, …) so you can compare start cadence versus FTE/WIP behavior.</p>
           <div class="start-delta-grid" id="startDeltaSummary"></div>
           <div class="distribution-row" id="startDeltaDistribution"></div>
           <div class="table-wrap">
@@ -845,6 +845,7 @@
                   <th>Earlier start</th>
                   <th>Later start</th>
                   <th>Gap (days)</th>
+                  <th>Gap (shifts)</th>
                 </tr>
               </thead>
               <tbody id="startDeltaBody"></tbody>
@@ -1582,7 +1583,7 @@
           const staffingType = productStaffingType[index] || "normal";
           const sequence = buildShiftSequence(startShiftIndex, staffingType);
           const startDay = sequence.sequenceShifts[0]?.day ?? 0;
-          return { product: index + 1, startDay };
+          return { product: index + 1, startDay, startShiftIndex };
         });
         const deltas = [];
         for (let i = 1; i < productStarts.length; i += 1) {
@@ -1593,31 +1594,46 @@
             earlier: prev.startDay + 1,
             later: next.startDay + 1,
             gap: next.startDay - prev.startDay,
+            shiftGap: next.startShiftIndex - prev.startShiftIndex,
           });
         }
         const gapValues = deltas.map((entry) => entry.gap);
+        const shiftGapValues = deltas.map((entry) => entry.shiftGap);
         const minGap = gapValues.length ? Math.min(...gapValues) : 0;
         const maxGap = gapValues.length ? Math.max(...gapValues) : 0;
         const avgGap = gapValues.length ? gapValues.reduce((sum, value) => sum + value, 0) / gapValues.length : 0;
+        const minShiftGap = shiftGapValues.length ? Math.min(...shiftGapValues) : 0;
+        const maxShiftGap = shiftGapValues.length ? Math.max(...shiftGapValues) : 0;
+        const avgShiftGap = shiftGapValues.length ? shiftGapValues.reduce((sum, value) => sum + value, 0) / shiftGapValues.length : 0;
         const sortedGapValues = [...gapValues].sort((a, b) => a - b);
+        const sortedShiftGapValues = [...shiftGapValues].sort((a, b) => a - b);
         const medianGap = sortedGapValues.length
           ? (sortedGapValues.length % 2 === 1
             ? sortedGapValues[(sortedGapValues.length - 1) / 2]
             : (sortedGapValues[sortedGapValues.length / 2 - 1] + sortedGapValues[sortedGapValues.length / 2]) / 2)
+          : 0;
+        const medianShiftGap = sortedShiftGapValues.length
+          ? (sortedShiftGapValues.length % 2 === 1
+            ? sortedShiftGapValues[(sortedShiftGapValues.length - 1) / 2]
+            : (sortedShiftGapValues[sortedShiftGapValues.length / 2 - 1] + sortedShiftGapValues[sortedShiftGapValues.length / 2]) / 2)
           : 0;
         startDeltaSummary.innerHTML = `
           <div class="delta-kpi"><strong>Pairs compared</strong><span>${deltas.length}</span></div>
           <div class="delta-kpi"><strong>Average gap (days)</strong><span>${avgGap.toFixed(1)}</span></div>
           <div class="delta-kpi"><strong>Median gap (days)</strong><span>${medianGap}</span></div>
           <div class="delta-kpi"><strong>Min / Max gap</strong><span>${minGap} / ${maxGap}</span></div>
+          <div class="delta-kpi"><strong>Average gap (shifts)</strong><span>${avgShiftGap.toFixed(1)}</span></div>
+          <div class="delta-kpi"><strong>Median gap (shifts)</strong><span>${medianShiftGap}</span></div>
+          <div class="delta-kpi"><strong>Min / Max gap (shifts)</strong><span>${minShiftGap} / ${maxShiftGap}</span></div>
         `;
         const distribution = new Map();
-        deltas.forEach(({ gap }) => {
-          distribution.set(gap, (distribution.get(gap) || 0) + 1);
+        deltas.forEach(({ gap, shiftGap }) => {
+          const label = `${gap} day(s) · ${shiftGap} shift(s)`;
+          distribution.set(label, (distribution.get(label) || 0) + 1);
         });
         startDeltaDistribution.innerHTML = Array.from(distribution.entries())
-          .sort((a, b) => a[0] - b[0])
-          .map(([gap, count]) => `<span class="distribution-chip">${gap} day(s): ${count}</span>`)
+          .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
+          .map(([label, count]) => `<span class="distribution-chip">${label}: ${count}</span>`)
           .join("");
         startDeltaBody.innerHTML = deltas.map((entry) => `
           <tr>
@@ -1625,8 +1641,9 @@
             <td>Day ${entry.earlier}</td>
             <td>Day ${entry.later}</td>
             <td>${entry.gap}</td>
+            <td>${entry.shiftGap}</td>
           </tr>
-        `).join("") || '<tr><td colspan="4">At least two products are needed to compare start gaps.</td></tr>';
+        `).join("") || '<tr><td colspan="5">At least two products are needed to compare start gaps.</td></tr>';
       };
 
       const renderGantt = ({ renderParallel = true, renderSchedule = true } = {}) => {
