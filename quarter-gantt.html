@@ -1758,6 +1758,10 @@
           ganttBody.appendChild(row);
         }
 
+        const peakDailyStaffing = Math.max(...dailyStaff, 0);
+        focusDay = Math.max(0, dailyStaff.indexOf(peakDailyStaffing));
+        focusDayInput.value = String(focusDay + 1);
+
         updateKpis(sequenceStaffNormal, sequenceStaffSlow, dailyStaff, dailyActive);
         renderDailyChart(dailyStaff, dailyActive);
         renderDailyTable(dailyStaff, dailyActive);
