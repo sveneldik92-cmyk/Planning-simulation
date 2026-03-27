@@ -900,14 +900,14 @@
       <summary>Daily load insights</summary>
       <section class="analytics-panel">
         <div class="chart-card">
-          <h3>Daily FTE and WIP trend</h3>
-          <p>Hover over the chart to inspect the staffing totals, scheduled shifts, FTE conversion, and WIP for each day in the quarter.</p>
+          <h3>Shift FTE and WIP trend</h3>
+          <p>Hover over the chart to inspect the peak shift staffing, scheduled shifts, shift-based FTE conversion, and WIP for each day in the quarter.</p>
           <div class="chart-wrap" id="dailyChartWrap">
             <svg class="daily-chart" id="dailyChart" viewBox="0 0 1200 280" preserveAspectRatio="none"></svg>
             <div class="chart-tooltip" id="chartTooltip"></div>
           </div>
           <div class="chart-legend">
-            <div class="chip" id="toggleFte"><span class="swatch" style="background:#54d68d"></span> Daily FTE</div>
+            <div class="chip" id="toggleFte"><span class="swatch" style="background:#54d68d"></span> Shift FTE</div>
             <div class="chip" id="toggleWip"><span class="swatch" style="background:#8ab4f8"></span> Daily WIP</div>
           </div>
         </div>
@@ -1533,10 +1533,10 @@
         `;
       };
 
-      const renderDailyChart = (dailyStaff, dailyActive) => {
+      const renderDailyChart = (dailyPeakShift, dailyActive) => {
         const fteFactor = Number.parseFloat(fteFactorInput.value) || 0;
-        const dailyFte = dailyStaff.map((value) => value * fteFactor);
-        const maxFte = Math.max(...dailyFte, 1);
+        const shiftFte = dailyPeakShift.map((entry) => (entry?.staffing || 0) * fteFactor);
+        const maxFte = Math.max(...shiftFte, 1);
         const maxWip = Math.max(...dailyActive, 1);
         const width = 1200;
         const height = 280;
@@ -1546,11 +1546,11 @@
         const stepX = innerWidth / Math.max(rangeDays - 1, 1);
         const yForFte = (value) => padding.top + innerHeight - (value / maxFte) * innerHeight;
         const yForWip = (value) => padding.top + innerHeight - (value / maxWip) * innerHeight;
-        const ftePoints = dailyFte.map((value, index) => `${padding.left + index * stepX},${yForFte(value)}`).join(" ");
+        const ftePoints = shiftFte.map((value, index) => `${padding.left + index * stepX},${yForFte(value)}`).join(" ");
         const wipPoints = dailyActive.map((value, index) => `${padding.left + index * stepX},${yForWip(value)}`).join(" ");
-        const dayMarkers = dailyStaff.map((staffValue, index) => {
+        const dayMarkers = shiftFte.map((_, index) => {
           const x = padding.left + index * stepX;
-          const yFte = yForFte(dailyFte[index]);
+          const yFte = yForFte(shiftFte[index]);
           const yWip = yForWip(dailyActive[index]);
           return `
             <g class="hover-zone" data-day="${index}" transform="translate(${x},0)">
@@ -1604,8 +1604,8 @@
               <strong>Day ${index + 1}</strong><br>
               ${dayLabels[getDow(index)]}<br>
               Shifts: ${getShiftsForDay(index)}<br>
-              Staffing: ${dailyStaff[index].toFixed(1)}<br>
-              ${chartSeriesVisibility.fte ? `FTE: ${dailyFte[index].toFixed(1)}<br>` : ""}
+              Peak shift staffing: ${(dailyPeakShift[index]?.staffing || 0).toFixed(1)}<br>
+              ${chartSeriesVisibility.fte ? `Shift FTE: ${shiftFte[index].toFixed(1)}<br>` : ""}
               ${chartSeriesVisibility.wip ? `WIP: ${dailyActive[index]}` : ""}
             `;
             const wrapRect = dailyChartWrap.getBoundingClientRect();
@@ -1979,7 +1979,7 @@
         const dailyPeakShift = getPeakShiftByDay(shiftStaff);
 
         updateKpis(sequenceStaffNormal, sequenceStaffSlow, dailyStaff, dailyActive, shiftStaff);
-        renderDailyChart(dailyStaff, dailyActive);
+        renderDailyChart(dailyPeakShift, dailyActive);
         renderDailyTable(dailyStaff, dailyActive, dailyPeakShift);
         renderStaffingBreakdown(dailyBreakdown, dailyProductAssignments, dailyPeakShift);
         renderStartDeltaInsights();
