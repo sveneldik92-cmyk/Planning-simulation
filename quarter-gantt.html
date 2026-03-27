@@ -443,7 +443,7 @@
     }
     .daily-chart {
       width: 100%;
-      min-width: 900px;
+      min-width: 0;
       height: 280px;
       display: block;
     }
@@ -472,6 +472,19 @@
       font-size: 12px;
       color: #9aa5b6;
       margin-top: 10px;
+    }
+    .chart-legend .chip {
+      border: 1px solid #2a354a;
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: rgba(255,255,255,0.02);
+      cursor: pointer;
+      user-select: none;
+      transition: opacity 0.15s ease, border-color 0.15s ease;
+    }
+    .chart-legend .chip.inactive {
+      opacity: 0.45;
+      border-color: #223048;
     }
     .chart-legend .swatch {
       width: 12px;
@@ -894,8 +907,8 @@
             <div class="chart-tooltip" id="chartTooltip"></div>
           </div>
           <div class="chart-legend">
-            <div class="chip"><span class="swatch" style="background:#54d68d"></span> Daily FTE</div>
-            <div class="chip"><span class="swatch" style="background:#8ab4f8"></span> Daily WIP</div>
+            <div class="chip" id="toggleFte"><span class="swatch" style="background:#54d68d"></span> Daily FTE</div>
+            <div class="chip" id="toggleWip"><span class="swatch" style="background:#8ab4f8"></span> Daily WIP</div>
           </div>
         </div>
         <div class="table-card">
@@ -1000,6 +1013,8 @@
       const dailyChart = byId("dailyChart");
       const dailyChartWrap = byId("dailyChartWrap");
       const chartTooltip = byId("chartTooltip");
+      const toggleFte = byId("toggleFte");
+      const toggleWip = byId("toggleWip");
       const dailyMetricsBody = byId("dailyMetricsBody");
       const staffingBreakdown = byId("staffingBreakdown");
       const focusShiftInput = byId("focusShift");
@@ -1018,6 +1033,10 @@
       let weeklyShiftCounts = Array.from({ length: 7 }, () => defaultDailyShifts);
       let dragging = null;
       let focusShift = 0;
+      let chartSeriesVisibility = {
+        fte: true,
+        wip: true,
+      };
 
       const getDow = (dayIndex) => (quarterStartDow + dayIndex) % 7;
 
@@ -1387,6 +1406,7 @@
           parallelStaff,
           weeklyShiftCounts,
           focusShift,
+          chartSeriesVisibility,
         };
         localStorage.setItem(storageKey, JSON.stringify(state));
       };
@@ -1435,6 +1455,10 @@
             const dayIndex = clamp(Number(state.focusDay), 0, rangeDays - 1);
             const dayRange = quarterSchedule.dayRanges[dayIndex];
             focusShift = dayRange?.startShiftIndex ?? 0;
+          }
+          if (state.chartSeriesVisibility && typeof state.chartSeriesVisibility === "object") {
+            chartSeriesVisibility.fte = state.chartSeriesVisibility.fte !== false;
+            chartSeriesVisibility.wip = state.chartSeriesVisibility.wip !== false;
           }
           return true;
         } catch (error) {
@@ -1516,7 +1540,7 @@
         const maxWip = Math.max(...dailyActive, 1);
         const width = 1200;
         const height = 280;
-        const padding = { top: 20, right: 20, bottom: 30, left: 46 };
+        const padding = { top: 28, right: 56, bottom: 34, left: 56 };
         const innerWidth = width - padding.left - padding.right;
         const innerHeight = height - padding.top - padding.bottom;
         const stepX = innerWidth / Math.max(rangeDays - 1, 1);
@@ -1531,8 +1555,8 @@
           return `
             <g class="hover-zone" data-day="${index}" transform="translate(${x},0)">
               <line x1="0" x2="0" y1="${padding.top}" y2="${padding.top + innerHeight}" stroke="transparent" stroke-width="${Math.max(stepX, 10)}" />
-              <circle cx="0" cy="${yFte}" r="3.5" fill="#54d68d"></circle>
-              <circle cx="0" cy="${yWip}" r="3.5" fill="#8ab4f8"></circle>
+              ${chartSeriesVisibility.fte ? `<circle cx="0" cy="${yFte}" r="3.5" fill="#54d68d"></circle>` : ""}
+              ${chartSeriesVisibility.wip ? `<circle cx="0" cy="${yWip}" r="3.5" fill="#8ab4f8"></circle>` : ""}
             </g>`;
         }).join("");
         const yTicks = Array.from({ length: 5 }, (_, idx) => idx / 4);
@@ -1547,17 +1571,28 @@
               <text x="${width - padding.right + 8}" y="${y + 4}" fill="#8fa0bd" font-size="11" text-anchor="start">${wipLabel}</text>
             </g>`;
         }).join("");
-        const xLabels = Array.from({ length: 13 }, (_, idx) => Math.round((idx / 12) * (rangeDays - 1))).map((day) => `
-          <text x="${padding.left + day * stepX}" y="${height - 8}" fill="#8fa0bd" font-size="11" text-anchor="middle">D${day + 1}</text>
+        const xLabels = Array.from({ length: 19 }, (_, idx) => Math.round((idx / 18) * (rangeDays - 1))).map((day) => `
+          <g>
+            <line x1="${padding.left + day * stepX}" x2="${padding.left + day * stepX}" y1="${padding.top + innerHeight}" y2="${padding.top + innerHeight + 4}" stroke="#3a4b68" stroke-width="1" />
+            <text x="${padding.left + day * stepX}" y="${height - 8}" fill="#8fa0bd" font-size="11" text-anchor="middle">${day + 1}</text>
+          </g>
         `).join("");
+
+        const fteLine = chartSeriesVisibility.fte
+          ? `<polyline fill="none" stroke="#54d68d" stroke-width="3" points="${ftePoints}"></polyline>`
+          : "";
+        const wipLine = chartSeriesVisibility.wip
+          ? `<polyline fill="none" stroke="#8ab4f8" stroke-width="3" points="${wipPoints}"></polyline>`
+          : "";
 
         dailyChart.innerHTML = `
           <rect x="0" y="0" width="${width}" height="${height}" fill="#162030" rx="12"></rect>
           ${gridLines}
-          <text x="${padding.left - 12}" y="${padding.top - 4}" fill="#8fa0bd" font-size="11" text-anchor="end">FTE</text>
-          <text x="${width - padding.right + 12}" y="${padding.top - 4}" fill="#8fa0bd" font-size="11" text-anchor="start">WIP</text>
-          <polyline fill="none" stroke="#54d68d" stroke-width="3" points="${ftePoints}"></polyline>
-          <polyline fill="none" stroke="#8ab4f8" stroke-width="3" points="${wipPoints}"></polyline>
+          <line x1="${padding.left}" x2="${width - padding.right}" y1="${padding.top + innerHeight}" y2="${padding.top + innerHeight}" stroke="#33435f" stroke-width="1.2"></line>
+          <text x="${padding.left - 34}" y="${padding.top + 10}" fill="#8fa0bd" font-size="11" text-anchor="end">FTE</text>
+          <text x="${width - padding.right + 34}" y="${padding.top + 10}" fill="#8fa0bd" font-size="11" text-anchor="start">WIP</text>
+          ${fteLine}
+          ${wipLine}
           ${dayMarkers}
           ${xLabels}
         `;
@@ -1570,8 +1605,8 @@
               ${dayLabels[getDow(index)]}<br>
               Shifts: ${getShiftsForDay(index)}<br>
               Staffing: ${dailyStaff[index].toFixed(1)}<br>
-              FTE: ${dailyFte[index].toFixed(1)}<br>
-              WIP: ${dailyActive[index]}
+              ${chartSeriesVisibility.fte ? `FTE: ${dailyFte[index].toFixed(1)}<br>` : ""}
+              ${chartSeriesVisibility.wip ? `WIP: ${dailyActive[index]}` : ""}
             `;
             const wrapRect = dailyChartWrap.getBoundingClientRect();
             chartTooltip.style.left = `${event.clientX - wrapRect.left}px`;
@@ -2109,7 +2144,22 @@
         renderWeeklyShiftSchedule();
         ensureParallelLength("normal", getCycleTime("normal"));
         ensureParallelLength("slow", getCycleTime("slow"));
+        const syncChartLegendState = () => {
+          toggleFte.classList.toggle("inactive", !chartSeriesVisibility.fte);
+          toggleWip.classList.toggle("inactive", !chartSeriesVisibility.wip);
+        };
+        syncChartLegendState();
         renderGantt();
+        toggleFte.addEventListener("click", () => {
+          chartSeriesVisibility.fte = !chartSeriesVisibility.fte;
+          syncChartLegendState();
+          renderGantt({ renderParallel: false, renderSchedule: false });
+        });
+        toggleWip.addEventListener("click", () => {
+          chartSeriesVisibility.wip = !chartSeriesVisibility.wip;
+          syncChartLegendState();
+          renderGantt({ renderParallel: false, renderSchedule: false });
+        });
         productCountInput.addEventListener("change", handleInputChange);
         planningModeInput.addEventListener("change", handleInputChange);
         cycleTimeNormalInput.addEventListener("change", () => {
