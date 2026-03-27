@@ -920,11 +920,11 @@
         </div>
         <div class="table-card">
           <h3>Daily planning table</h3>
-          <p>Shows a 7-day focus window (selected day ±3) with daily staffing load, resulting FTEs, and active parallel sequences.</p>
+          <p>Shows a 7-day focus window (selected shift’s day ±3) with daily staffing load, resulting FTEs, and active parallel sequences.</p>
           <div class="window-controls">
             <div class="field">
-              <label for="focusDay">Focus day</label>
-              <input id="focusDay" type="number" min="1" max="91" value="1" />
+              <label for="focusShift">Focus shift</label>
+              <input id="focusShift" type="number" min="1" value="1" />
             </div>
             <p class="window-note" id="focusWindowLabel"></p>
           </div>
@@ -954,7 +954,7 @@
     <details class="section" open>
       <summary>FTE budget deep dive</summary>
       <section class="fte-details">
-        <p class="note">Budget is based on the peak daily staffing (highest combined staffing across all active products in the Gantt timeline).</p>
+        <p class="note">Budget is based on the peak shift staffing (highest combined staffing across all active products in the Gantt timeline).</p>
         <div id="fteDeepDive"></div>
       </section>
     </details>
@@ -1001,7 +1001,7 @@
       const chartTooltip = byId("chartTooltip");
       const dailyMetricsBody = byId("dailyMetricsBody");
       const staffingBreakdown = byId("staffingBreakdown");
-      const focusDayInput = byId("focusDay");
+      const focusShiftInput = byId("focusShift");
       const focusWindowLabel = byId("focusWindowLabel");
       const startDeltaSummary = byId("startDeltaSummary");
       const startDeltaDistribution = byId("startDeltaDistribution");
@@ -1016,7 +1016,7 @@
       };
       let weeklyShiftCounts = Array.from({ length: 7 }, () => defaultDailyShifts);
       let dragging = null;
-      let focusDay = 0;
+      let focusShift = 0;
 
       const getDow = (dayIndex) => (quarterStartDow + dayIndex) % 7;
 
@@ -1221,14 +1221,14 @@
         return segments;
       };
 
-      const updateKpis = (sequenceStaffNormal, sequenceStaffSlow, dailyStaff, dailyActive) => {
-        const maxStaff = Math.max(...dailyStaff, 0);
+      const updateKpis = (sequenceStaffNormal, sequenceStaffSlow, dailyStaff, dailyActive, shiftStaff) => {
+        const maxStaff = Math.max(...shiftStaff, 0);
         const maxWip = Math.max(...dailyActive, 0);
         const fteFactor = Number.parseFloat(fteFactorInput.value) || 0;
         kpiCycle.textContent = `Normal: ${sequenceStaffNormal.length} shifts · Slow: ${sequenceStaffSlow.length} shifts`;
         kpiFte.textContent = `${(maxStaff * fteFactor).toFixed(1)} FTE`;
         kpiWip.textContent = `${maxWip} sequences`;
-        updateFteDeepDive(sequenceStaffNormal, sequenceStaffSlow, dailyStaff, dailyActive, maxStaff, maxWip);
+        updateFteDeepDive(sequenceStaffNormal, sequenceStaffSlow, dailyStaff, dailyActive, shiftStaff, maxStaff, maxWip);
       };
 
       const focusNextCell = (container, selector) => {
@@ -1385,7 +1385,7 @@
           productStaffingType,
           parallelStaff,
           weeklyShiftCounts,
-          focusDay,
+          focusShift,
         };
         localStorage.setItem(storageKey, JSON.stringify(state));
       };
@@ -1427,8 +1427,13 @@
               },
             };
           }
-          if (Number.isFinite(state.focusDay)) {
-            focusDay = clamp(Number(state.focusDay), 0, rangeDays - 1);
+          const quarterSchedule = getQuarterShiftSchedule();
+          if (Number.isFinite(state.focusShift)) {
+            focusShift = clamp(Number(state.focusShift), 0, Math.max(quarterSchedule.totalShifts - 1, 0));
+          } else if (Number.isFinite(state.focusDay)) {
+            const dayIndex = clamp(Number(state.focusDay), 0, rangeDays - 1);
+            const dayRange = quarterSchedule.dayRanges[dayIndex];
+            focusShift = dayRange?.startShiftIndex ?? 0;
           }
           return true;
         } catch (error) {
@@ -1577,10 +1582,12 @@
       };
 
       const getFocusWindow = () => {
-        const clampedFocus = clamp(Math.round(focusDay), 0, rangeDays - 1);
+        const quarterSchedule = getQuarterShiftSchedule();
+        const clampedFocusShift = clamp(Math.round(focusShift), 0, Math.max(quarterSchedule.totalShifts - 1, 0));
+        const focusDay = quarterSchedule.shifts[clampedFocusShift]?.day ?? 0;
         const desiredSpan = 7;
-        let start = clampedFocus - 3;
-        let end = clampedFocus + 3;
+        let start = focusDay - 3;
+        let end = focusDay + 3;
         if (start < 0) {
           end = Math.min(rangeDays - 1, end + (0 - start));
           start = 0;
@@ -1596,13 +1603,13 @@
             start = rangeDays - desiredSpan;
           }
         }
-        return { start, end, focus: clampedFocus };
+        return { start, end, focusDay, focusShift: clampedFocusShift };
       };
 
       const renderDailyTable = (dailyStaff, dailyActive) => {
         const fteFactor = Number.parseFloat(fteFactorInput.value) || 0;
-        const { start, end, focus } = getFocusWindow();
-        focusWindowLabel.textContent = `Showing Day ${start + 1} to Day ${end + 1} around focus Day ${focus + 1}.`;
+        const { start, end, focusDay, focusShift } = getFocusWindow();
+        focusWindowLabel.textContent = `Showing Day ${start + 1} to Day ${end + 1} around Shift ${focusShift + 1} (Day ${focusDay + 1}).`;
         dailyMetricsBody.innerHTML = dailyStaff.slice(start, end + 1).map((staffValue, offset) => {
           const index = start + offset;
           return `
@@ -1619,14 +1626,14 @@
       };
 
       const renderStaffingBreakdown = (dailyBreakdown, dailyProductAssignments) => {
-        const { focus } = getFocusWindow();
-        const entry = dailyBreakdown[focus];
+        const { focusDay, focusShift } = getFocusWindow();
+        const entry = dailyBreakdown[focusDay];
         if (!entry || entry.totalStaffing <= 0) {
-          staffingBreakdown.innerHTML = '<p class="note">No staffed products on the selected focus day.</p>';
+          staffingBreakdown.innerHTML = '<p class="note">No staffed products on the selected focus shift/day.</p>';
           return;
         }
 
-        const productRows = (dailyProductAssignments[focus] || [])
+        const productRows = (dailyProductAssignments[focusDay] || [])
           .sort((a, b) => a.productIndex - b.productIndex)
           .map((assignment) => {
             const stepCells = assignment.sequenceStaff
@@ -1654,7 +1661,8 @@
             <div class="breakdown-meta">
               <div><strong>Total staffing:</strong> ${entry.totalStaffing.toFixed(1)}</div>
               <div><strong>Running products:</strong> ${entry.activeProducts}</div>
-              <div><strong>Focus day shifts:</strong> ${getShiftsForDay(entry.day)}</div>
+              <div><strong>Focus shift:</strong> ${focusShift + 1}</div>
+              <div><strong>Shifts in this day:</strong> ${getShiftsForDay(entry.day)}</div>
             </div>
             <div class="product-breakdown">
               <div class="product-breakdown-header">
@@ -1740,8 +1748,10 @@
         const productCount = Number.parseInt(productCountInput.value, 10) || 0;
         const sequenceStaffNormal = getSequenceStaff("normal");
         const sequenceStaffSlow = getSequenceStaff("slow");
+        const quarterSchedule = getQuarterShiftSchedule();
         const dailyStaff = Array.from({ length: rangeDays }, () => 0);
         const dailyActive = Array.from({ length: rangeDays }, () => 0);
+        const shiftStaff = Array.from({ length: Math.max(quarterSchedule.totalShifts, 1) }, () => 0);
         const dailyBreakdown = Array.from({ length: rangeDays }, (_, day) => ({
           day,
           criticalStaffing: 0,
@@ -1827,7 +1837,10 @@
             dailyBreakdown[day].parallelStaffing += parallel;
           });
           const offsetsByDay = new Map();
-          calendarSequence.sequenceShifts.forEach(({ day, staffing }, shiftOffset) => {
+          calendarSequence.sequenceShifts.forEach(({ day, staffing, shiftIndex }, shiftOffset) => {
+            if (Number.isFinite(shiftIndex)) {
+              shiftStaff[shiftIndex] += staffing;
+            }
             if (!offsetsByDay.has(day)) {
               offsetsByDay.set(day, { day, staffing: 0, offsets: [] });
             }
@@ -1856,8 +1869,8 @@
             bar.dataset.segmentIndex = String(segmentIndex);
             bar.style.gridColumnStart = segment.start + 1;
             bar.style.gridColumnEnd = segment.end + 2;
-            const startMeta = getQuarterShiftSchedule().shifts[segment.start];
-            const endMeta = getQuarterShiftSchedule().shifts[segment.end];
+            const startMeta = quarterSchedule.shifts[segment.start];
+            const endMeta = quarterSchedule.shifts[segment.end];
             const wrapNote = segment.start > segment.end ? ' (wraps quarter boundary)' : '';
             bar.title = `Start Day ${startMeta.day + 1} Shift ${startMeta.shiftInDay + 1}, end Day ${endMeta.day + 1} Shift ${endMeta.shiftInDay + 1}${wrapNote}`;
             const segmentLength = segment.end - segment.start + 1;
@@ -1884,11 +1897,12 @@
           ganttBody.appendChild(row);
         }
 
-        const peakDailyStaffing = Math.max(...dailyStaff, 0);
-        focusDay = Math.max(0, dailyStaff.indexOf(peakDailyStaffing));
-        focusDayInput.value = String(focusDay + 1);
+        const peakShiftStaffing = Math.max(...shiftStaff, 0);
+        focusShift = Math.max(0, shiftStaff.indexOf(peakShiftStaffing));
+        focusShiftInput.max = String(Math.max(quarterSchedule.totalShifts, 1));
+        focusShiftInput.value = String(focusShift + 1);
 
-        updateKpis(sequenceStaffNormal, sequenceStaffSlow, dailyStaff, dailyActive);
+        updateKpis(sequenceStaffNormal, sequenceStaffSlow, dailyStaff, dailyActive, shiftStaff);
         renderDailyChart(dailyStaff, dailyActive);
         renderDailyTable(dailyStaff, dailyActive);
         renderStaffingBreakdown(dailyBreakdown, dailyProductAssignments);
@@ -1974,6 +1988,7 @@
         sequenceStaffSlow,
         dailyStaff,
         dailyActive,
+        shiftStaff,
         maxStaff,
         maxWip
       ) => {
@@ -1988,9 +2003,14 @@
         const tuckWeeks = (tuckDays / 7).toFixed(1);
         const startWindowShifts = latestStart + 1;
         const startWindowWeeks = (startWindowShifts / Math.max(getQuarterShiftSchedule().totalShifts / weeks, 1)).toFixed(1);
-        const peakDayIndex = dailyStaff.indexOf(maxStaff);
+        const quarterSchedule = getQuarterShiftSchedule();
+        const peakShiftIndex = shiftStaff.indexOf(maxStaff);
+        const peakShiftMeta = quarterSchedule.shifts[Math.max(peakShiftIndex, 0)] || { day: 0, shiftInDay: 0 };
+        const peakDayIndex = peakShiftMeta.day;
         const peakDayNumber = peakDayIndex >= 0 ? peakDayIndex + 1 : 1;
         const peakDow = dayLabels[getDow(peakDayIndex >= 0 ? peakDayIndex : 0)];
+        const peakShiftNumber = peakShiftIndex >= 0 ? peakShiftIndex + 1 : 1;
+        const peakShiftInDay = peakShiftMeta.shiftInDay + 1;
         const peakActive = dailyActive[peakDayIndex] || 0;
         const avgStaffPerActive = peakActive ? (maxStaff / peakActive).toFixed(1) : "0.0";
         const planningLabels = {
@@ -2018,11 +2038,11 @@
           <h3>FTE budget deep dive</h3>
           <ul>
             <li><strong>FTE calculation:</strong> ${maxStaff} × ${fteFactor} = ${(maxStaff * fteFactor).toFixed(1)} FTE</li>
-            <li><strong>FTE formula:</strong> FTE = peak daily staffing × FTE factor</li>
-            <li><strong>Peak daily staffing across all active products:</strong> ${maxStaff}</li>
-            <li><strong>Peak staffing day:</strong> Day ${peakDayNumber} (${peakDow})</li>
-            <li><strong>Active products on peak day:</strong> ${peakActive}</li>
-            <li><strong>Average staffing per active product on peak day:</strong> ${avgStaffPerActive}</li>
+            <li><strong>FTE formula:</strong> FTE = peak shift staffing × FTE factor</li>
+            <li><strong>Peak shift staffing across all active products:</strong> ${maxStaff}</li>
+            <li><strong>Peak staffing shift:</strong> Shift ${peakShiftNumber} (Day ${peakDayNumber} ${peakDow}, shift-in-day ${peakShiftInDay})</li>
+            <li><strong>Active products on peak shift day:</strong> ${peakActive}</li>
+            <li><strong>Average staffing per active product on peak shift day:</strong> ${avgStaffPerActive}</li>
             <li><strong>Peak WIP capability:</strong> ${maxWip} sequences</li>
             <li><strong>Total staffing per shift (normal):</strong> [${combinedStaffNormal}]</li>
             <li><strong>Critical-path staffing per shift (normal):</strong> [${earlyStaffNormal}]</li>
@@ -2043,7 +2063,8 @@
       document.addEventListener("DOMContentLoaded", () => {
         initializeParallelStaff();
         loadState();
-        focusDayInput.value = String((focusDay || 0) + 1);
+        focusShiftInput.value = String((focusShift || 0) + 1);
+        focusShiftInput.max = String(Math.max(getQuarterShiftSchedule().totalShifts, 1));
         renderWeeklyShiftSchedule();
         ensureParallelLength("normal", getCycleTime("normal"));
         ensureParallelLength("slow", getCycleTime("slow"));
@@ -2067,9 +2088,13 @@
           renderGantt();
         });
         fteFactorInput.addEventListener("change", renderGantt);
-        focusDayInput.addEventListener("input", () => {
-          focusDay = clamp((Number.parseInt(focusDayInput.value, 10) || 1) - 1, 0, rangeDays - 1);
-          focusDayInput.value = String(focusDay + 1);
+        focusShiftInput.addEventListener("input", () => {
+          focusShift = clamp(
+            (Number.parseInt(focusShiftInput.value, 10) || 1) - 1,
+            0,
+            Math.max(getQuarterShiftSchedule().totalShifts - 1, 0)
+          );
+          focusShiftInput.value = String(focusShift + 1);
           renderGantt({ renderParallel: false, renderSchedule: false });
         });
         window.addEventListener("pointermove", handlePointerMove);
