@@ -632,6 +632,72 @@
       font-size: 12px;
       color: #b5bfcd;
     }
+    .product-breakdown {
+      border: 1px solid #263145;
+      border-radius: 8px;
+      background: #172132;
+      padding: 10px;
+      margin-top: 10px;
+    }
+    .product-breakdown-header {
+      display: grid;
+      grid-template-columns: minmax(78px, auto) 70px 1fr;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      color: #9aa5b6;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .product-breakdown-row {
+      display: grid;
+      grid-template-columns: minmax(78px, auto) 70px 1fr;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .product-breakdown-row:last-child {
+      margin-bottom: 0;
+    }
+    .product-id {
+      font-weight: 700;
+      color: var(--dark-blue);
+      font-size: 12px;
+    }
+    .product-staff {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .sequence-strip {
+      display: grid;
+      gap: 2px;
+      min-height: 18px;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid #263145;
+      background: #0f1827;
+      padding: 2px;
+    }
+    .sequence-step {
+      min-width: 0;
+      border-radius: 4px;
+      background: #304b78;
+      color: #dce6f8;
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(138, 180, 248, 0.18);
+      min-height: 14px;
+    }
+    .sequence-step.highlight {
+      background: #54d68d;
+      color: #071927;
+      border-color: rgba(84, 214, 141, 0.75);
+      box-shadow: 0 0 0 1px rgba(84, 214, 141, 0.25) inset;
+    }
     .fte-details .note {
       margin: 0 0 8px;
       color: #9aa5b6;
@@ -1552,30 +1618,54 @@
         }).join('');
       };
 
-      const renderStaffingBreakdown = (dailyBreakdown) => {
-        const { start, end } = getFocusWindow();
-        staffingBreakdown.innerHTML = dailyBreakdown
-          .filter((entry) => entry.day >= start && entry.day <= end && entry.totalStaffing > 0)
-          .map((entry) => {
-            const total = entry.totalStaffing || 1;
-            const criticalWidth = (entry.criticalStaffing / total) * 100;
-            const parallelWidth = (entry.parallelStaffing / total) * 100;
+      const renderStaffingBreakdown = (dailyBreakdown, dailyProductAssignments) => {
+        const { focus } = getFocusWindow();
+        const entry = dailyBreakdown[focus];
+        if (!entry || entry.totalStaffing <= 0) {
+          staffingBreakdown.innerHTML = '<p class="note">No staffed products on the selected focus day.</p>';
+          return;
+        }
+
+        const productRows = (dailyProductAssignments[focus] || [])
+          .sort((a, b) => a.productIndex - b.productIndex)
+          .map((assignment) => {
+            const stepCells = assignment.sequenceStaff
+              .map((staffValue, stepIndex) => {
+                const highlight = assignment.focusShiftOffsets.includes(stepIndex) ? "highlight" : "";
+                return `<div class="sequence-step ${highlight}" title="Shift ${stepIndex + 1}: ${staffValue} people">${staffValue}</div>`;
+              })
+              .join("");
             return `
-              <div class="breakdown-card">
-                <h4>Day ${entry.day + 1} · ${dayLabels[getDow(entry.day)]}</h4>
-                <p>Visual split of the staffing load that builds the daily total.</p>
-                <div class="stack-bar">
-                  <div class="stack-segment" style="width:${criticalWidth.toFixed(2)}%;background:#8ab4f8;">${entry.criticalStaffing.toFixed(1)}</div>
-                  <div class="stack-segment parallel" style="width:${parallelWidth.toFixed(2)}%;background:#31558d;">${entry.parallelStaffing.toFixed(1)}</div>
+              <div class="product-breakdown-row">
+                <div class="product-id">P${assignment.productIndex + 1}</div>
+                <div class="product-staff">${assignment.staffingOnDay.toFixed(1)}</div>
+                <div class="sequence-strip" style="grid-template-columns: repeat(${Math.max(assignment.sequenceStaff.length, 1)}, minmax(0, 1fr));">
+                  ${stepCells}
                 </div>
-                <div class="breakdown-meta">
-                  <div><strong>Total staffing:</strong> ${entry.totalStaffing.toFixed(1)}</div>
-                  <div><strong>Critical path:</strong> ${entry.criticalStaffing.toFixed(1)}</div>
-                  <div><strong>Parallel path:</strong> ${entry.parallelStaffing.toFixed(1)}</div>
-                  <div><strong>Running sequences:</strong> ${entry.activeProducts}</div>
-                </div>
-              </div>`;
-          }).join('') || '<p class="note">No staffed days in the selected 7-day window.</p>';
+              </div>
+            `;
+          })
+          .join("");
+
+        staffingBreakdown.innerHTML = `
+          <div class="breakdown-card">
+            <h4>Day ${entry.day + 1} · ${dayLabels[getDow(entry.day)]}</h4>
+            <p>Focus-day staffing by product. The full sequence is shown per product; green cells are the exact shift(s) worked on this day.</p>
+            <div class="breakdown-meta">
+              <div><strong>Total staffing:</strong> ${entry.totalStaffing.toFixed(1)}</div>
+              <div><strong>Running products:</strong> ${entry.activeProducts}</div>
+              <div><strong>Focus day shifts:</strong> ${getShiftsForDay(entry.day)}</div>
+            </div>
+            <div class="product-breakdown">
+              <div class="product-breakdown-header">
+                <div>Product</div>
+                <div>People</div>
+                <div>Full sequence timeline (highlight = today)</div>
+              </div>
+              ${productRows}
+            </div>
+          </div>
+        `;
       };
 
       const renderStartDeltaInsights = () => {
@@ -1659,6 +1749,7 @@
           totalStaffing: 0,
           activeProducts: 0,
         }));
+        const dailyProductAssignments = Array.from({ length: rangeDays }, () => []);
         const maxStaffValue = getMaxStaffValue();
 
         if (startShiftPositions.length !== productCount) {
@@ -1735,6 +1826,24 @@
             dailyBreakdown[day].criticalStaffing += critical;
             dailyBreakdown[day].parallelStaffing += parallel;
           });
+          const offsetsByDay = new Map();
+          calendarSequence.sequenceShifts.forEach(({ day, staffing }, shiftOffset) => {
+            if (!offsetsByDay.has(day)) {
+              offsetsByDay.set(day, { day, staffing: 0, offsets: [] });
+            }
+            const bucket = offsetsByDay.get(day);
+            bucket.staffing += staffing;
+            bucket.offsets.push(shiftOffset);
+          });
+          offsetsByDay.forEach((value, day) => {
+            dailyProductAssignments[day].push({
+              productIndex: i,
+              staffingType,
+              staffingOnDay: value.staffing,
+              focusShiftOffsets: value.offsets,
+              sequenceStaff,
+            });
+          });
           const sequenceIndexByDay = new Map(
             calendarSequence.sequenceShifts.map(({ shiftIndex }, idx) => [shiftIndex, idx])
           );
@@ -1782,7 +1891,7 @@
         updateKpis(sequenceStaffNormal, sequenceStaffSlow, dailyStaff, dailyActive);
         renderDailyChart(dailyStaff, dailyActive);
         renderDailyTable(dailyStaff, dailyActive);
-        renderStaffingBreakdown(dailyBreakdown);
+        renderStaffingBreakdown(dailyBreakdown, dailyProductAssignments);
         renderStartDeltaInsights();
         saveState();
         if (renderParallel) {
